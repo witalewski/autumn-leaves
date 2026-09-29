@@ -59,6 +59,22 @@ async function start() {
     scene.add(mesh);
     return mesh;
   });
+  function applyLeafVariety() {
+    // A separate seeded stream leaves the aerodynamic replay unchanged.
+    let seed = (settings.seed ^ 0x9e3779b9) >>> 0;
+    const random = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    for (const mesh of leaves) {
+      const size = 0.23 + random() * 0.16;
+      const width = 0.72 + random() * 0.56;
+      const curl = 0.65 + random() * 0.85;
+      mesh.scale.set(size * width, size, size * curl);
+      mesh.material = leaf.palette[Math.floor(random() * leaf.palette.length)].material;
+    }
+  }
+  applyLeafVariety();
   function syncLeaves() {
     for (let i = 0; i < leaves.length; i++) {
       leaves[i].visible = i < settings.leafCount;
@@ -103,6 +119,11 @@ async function start() {
     leaf.material.color.set(settings.leafColor);
     leaf.material.roughness = settings.roughness;
     leaf.material.normalScale.setScalar(settings.normalStrength);
+    for (const variant of leaf.palette) {
+      variant.material.color.copy(leaf.material.color).multiply(variant.tint);
+      variant.material.roughness = settings.roughness;
+      variant.material.normalScale.setScalar(settings.normalStrength);
+    }
     sky.haze.value = settings.haze;
     sky.clouds.value = settings.clouds;
     sky.sunIntensity.value = settings.sunIntensity;
@@ -178,7 +199,7 @@ async function start() {
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { simulation.reset(); syncLeaves(); });
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { simulation.reset(); applyLeafVariety(); syncLeaves(); });
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;

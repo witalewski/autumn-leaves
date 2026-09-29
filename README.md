@@ -47,11 +47,11 @@ This follows [Vite's relative-base support](https://vite.dev/guide/build#relativ
 
 ## Implementation
 
-- `main.ts`: scene, shared leaf meshes, lighting, fixed camera, input, sizing, and lifecycle.
+- `main.ts`: scene, leaf meshes with shared geometry/textures, lighting, fixed camera, input, sizing, and lifecycle.
 - `simulation/MotionSimulation.ts`: seeded fixed-size state pool, spatial/time-varying wind, and CPU integration at 120 Hz. Gravity, orientation-dependent drag, perpendicular lift, aerodynamic alignment, asymmetric tumble, flutter, and angular damping drive velocity and quaternion orientation. Parameters vary per leaf. Scratch vectors are reused.
 - `renderer.ts`: WebGPURenderer initialization, backend detection, and filmic tone mapping.
 - `sky.ts`: TSL gradient, atmospheric sun glow, sun disc, and procedural cloud wisps.
-- `leaf.ts`: shared curved geometry and double-sided material with warm, thickness-modulated backlighting.
+- `leaf.ts`: shared curved geometry and a five-color double-sided material palette with warm, thickness-modulated backlighting.
 - `debug.ts`: development controls and statistics.
 - `style.css`: canvas and captions.
 
@@ -65,7 +65,7 @@ Effective DPR is capped at 1.75, with a separate render-scale control. The singl
 
 ## Scope boundary
 
-Only phase 3 has been added. The small CPU prototype deliberately uses individual meshes sharing one geometry/material; instancing and GPU state/compute remain phase 4. There are no depth populations, LOD, adaptive quality, new post-processing, leaf variants, or asset-pipeline changes. All leaves have the same rendered scale. The existing sky/materials are retained.
+Only phase 3 has been added. The small CPU prototype deliberately uses individual meshes sharing one geometry and a small material palette; instancing and GPU state/compute remain phase 4. There are no depth populations, LOD, adaptive quality, new post-processing, or asset-pipeline changes. A follow-up adds seeded visual variety: five autumn tints (gold, amber, copper, russet, and olive), different sizes, narrower/broader proportions, and varying curvature. The palette shares the existing texture maps; these are variations of the same leaf silhouette, not new botanical species. Appearance stays stable during flight and recycling, and changing the seed regenerates it without altering the motion random sequence. The existing sky/materials are retained.
 
 ## Verification
 

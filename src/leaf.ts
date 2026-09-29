@@ -154,16 +154,27 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color) {
   const view = cameraPosition.sub(positionWorld).normalize();
   const forwardScatter = pow(dot(view.negate(), direction).max(0), 5).mul(0.65).add(0.35);
   const thin = thickness.oneMinus().pow(1.7);
-  material.emissiveNode = texture(maps.color).rgb.mul(uniform(material.color))
+  const transmissionNode = texture(maps.color).rgb.mul(uniform(material.color))
     .mul(mix(color, uniform(new Color('#ffb83d')), 0.35))
     .mul(back.pow(0.8)).mul(thin).mul(transmission).mul(sunStrength).mul(forwardScatter);
+  material.emissiveNode = transmissionNode;
+  // Reuse all texture maps and the lighting graph across a small autumn palette.
+  // Tint transmission as well as diffuse light so backlit leaves retain variety.
+  const palette = ['#fff3bb', '#ffffff', '#efb57f', '#d57d62', '#a7b777'].map((hex) => {
+    const tint = new Color(hex);
+    const variant = material.clone();
+    variant.color.copy(tint);
+    variant.emissiveNode = transmissionNode.mul(uniform(tint));
+    return { material: variant, tint };
+  });
   const mesh = new Mesh(createGeometry(), material);
   mesh.rotation.set(-0.18, -0.28, -0.38);
   return {
-    mesh, material, transmission, sunStrength,
+    mesh, material, palette, transmission, sunStrength,
     dispose() {
       mesh.geometry.dispose();
       material.dispose();
+      palette.forEach((variant) => variant.material.dispose());
       Object.values(maps).forEach((map) => map.dispose());
     },
   };
