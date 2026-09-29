@@ -2,8 +2,7 @@
 :root { font-family: Arial, sans-serif; color: #fff9ec; background: #8f9ba1; font-synthesis: none; }
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 #app { position: relative; background: radial-gradient(ellipse at 72% 42%, #fff4d5 0, #d9bd98 18%, transparent 45%), linear-gradient(#597c9c, #b0b4ac 65%, #d5b08a); }
-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
-canvas:active { cursor: grabbing; }
+canvas { display: block; width: 100%; height: 100%; cursor: default; }
 canvas:focus-visible { outline: 1px solid #fff9ec; outline-offset: -5px; }
 .caption { position: absolute; z-index: 1; left: 40px; right: 40px; pointer-events: none; text-shadow: 0 1px 18px #26374930; }
 header { top: 36px; }

@@ -1,0 +1,156 @@
+import { Quaternion, Vector3 } from 'three/webgpu';
+
+export const motionDefaults = {
+  running: true, leafCount: 32, seed: 2409,
+  windDirection: 15, windSpeed: 1.7, gustStrength: 1.8, turbulence: 0.65,
+  gravity: 1.6, drag: 1.15, lift: 0.65, tumble: 1.1, flutter: 0.55, angularDamping: 1.5,
+};
+export type MotionConfig = typeof motionDefaults;
+export interface LeafState {
+  position: Vector3;
+  velocity: Vector3;
+  rotation: Quaternion;
+  angularVelocity: Vector3;
+  mass: number;
+  drag: number;
+  lift: number;
+  phase: number;
+  frequency: number;
+}
+
+// Smooth, advected eddies at three scales. Trigonometric terms describe the air
+// field, never prescribed leaf positions. All leaves sample the same field.
+export function sampleWind(position: Vector3, time: number, config: MotionConfig, out: Vector3) {
+  const angle = config.windDirection * Math.PI / 180;
+  const x = position.x - time * 0.4, y = position.y, z = position.z;
+  const gust = config.gustStrength * (0.5 + 0.5 * Math.sin(time * 0.57 + x * 0.17 + z * 0.23)) ** 3;
+  const speed = config.windSpeed + gust;
+  out.set(Math.cos(angle) * speed, Math.sin(angle) * speed, 0);
+  out.x += config.turbulence * Math.sin(y * 0.72 + time * 0.81 + z * 0.3);
+  out.y += config.turbulence * Math.sin(z * 0.63 + time * 0.67 + x * 0.44);
+  out.z += config.turbulence * Math.cos(x * 0.61 - time * 0.53 + y * 0.39);
+  const fine = config.turbulence * 0.12;
+  out.x += Math.sin(y * 2.3 + time * 2.1) * fine;
+  out.y += Math.cos(x * 2.1 - time * 1.7) * fine;
+  out.z += Math.sin(z * 2.7 + time * 1.9) * fine;
+  return out;
+}
+const STEP = 1 / 120;
+
+export class MotionSimulation {
+  readonly leaves: LeafState[];
+  time = 0;
+  recycled = 0;
+  private accumulator = 0;
+  private randomState = 1;
+  private halfWidth = 10;
+  private halfHeight = 6;
+  private readonly air = new Vector3();
+  private readonly normal = new Vector3();
+  private readonly flow = new Vector3();
+  private readonly liftDirection = new Vector3();
+  private readonly torque = new Vector3();
+  private readonly increment = new Quaternion();
+
+  constructor(readonly config: MotionConfig, capacity = 50) {
+    this.leaves = Array.from({ length: capacity }, () => ({
+      position: new Vector3(), velocity: new Vector3(), rotation: new Quaternion(),
+      angularVelocity: new Vector3(), mass: 1, drag: 1, lift: 1, phase: 0, frequency: 1,
+    }));
+    this.reset();
+  }
+
+  setBounds(halfWidth: number, halfHeight: number) {
+    this.halfWidth = halfWidth;
+    this.halfHeight = halfHeight;
+  }
+
+  private random() {
+    this.randomState = (Math.imul(1664525, this.randomState) + 1013904223) >>> 0;
+    return this.randomState / 4294967296;
+  }
+
+  reset() {
+    this.randomState = this.config.seed >>> 0;
+    this.time = this.accumulator = this.recycled = 0;
+    for (const leaf of this.leaves) this.spawn(leaf, true);
+  }
+
+  private spawn(leaf: LeafState, initial: boolean) {
+    const x = this.halfWidth, y = this.halfHeight;
+    leaf.position.set((this.random() * 2 - 1) * x, (this.random() * 2 - 1) * y, -this.random() * 2);
+    if (!initial) {
+      // Top or upstream edge, beyond the visible frame and leaf radius.
+      if (this.random() < 0.45) leaf.position.y = y;
+      else leaf.position.x = Math.cos(this.config.windDirection * Math.PI / 180) >= 0 ? -x : x;
+    }
+    leaf.mass = 0.8 + this.random() * 0.4;
+    leaf.drag = 0.8 + this.random() * 0.4;
+    leaf.lift = 0.7 + this.random() * 0.6;
+    leaf.phase = this.random() * Math.PI * 2;
+    leaf.frequency = 5 + this.random() * 4;
+    // Uniform unit quaternion, with no common starting orientation.
+    const u = this.random(), a = this.random() * Math.PI * 2, b = this.random() * Math.PI * 2;
+    leaf.rotation.set(Math.sqrt(1 - u) * Math.sin(a), Math.sqrt(1 - u) * Math.cos(a), Math.sqrt(u) * Math.sin(b), Math.sqrt(u) * Math.cos(b));
+    leaf.angularVelocity.set(this.random() - 0.5, this.random() - 0.5, this.random() - 0.5);
+    sampleWind(leaf.position, this.time, this.config, leaf.velocity).multiplyScalar(0.6);
+    leaf.velocity.y -= 0.4;
+  }
+
+  update(delta: number, reducedMotion = false) {
+    if (!this.config.running || !Number.isFinite(delta) || delta <= 0) return;
+    // Fixed steps keep aerodynamic response independent of rendering frequency.
+    // Time dilation slows both translation and rotation without changing stability.
+    this.accumulator += Math.min(delta, 0.05) * (reducedMotion ? 0.08 : 1);
+    while (this.accumulator + 1e-10 >= STEP) {
+      this.step(STEP);
+      this.accumulator -= STEP;
+    }
+  }
+
+  private step(dt: number) {
+    const c = this.config;
+    this.time += dt;
+    for (let i = 0; i < c.leafCount; i++) {
+      const leaf = this.leaves[i];
+      this.normal.set(0, 0, 1).applyQuaternion(leaf.rotation);
+      sampleWind(leaf.position, this.time, c, this.air).sub(leaf.velocity);
+      const speed = this.air.length();
+      this.flow.copy(this.air).multiplyScalar(1 / Math.max(speed, 0.0001));
+      const incidence = this.normal.dot(this.flow);
+      // Projected area: edge-on leaves glide; broadside leaves brake strongly.
+      const drag = c.drag * leaf.drag * (0.18 + 0.82 * Math.abs(incidence));
+      const acceleration = Math.min(speed * drag / leaf.mass, 12);
+      leaf.velocity.addScaledVector(this.air, acceleration * dt);
+      // Lift is perpendicular to airflow and invariant when the leaf normal flips.
+      this.liftDirection.copy(this.normal).addScaledVector(this.flow, -incidence);
+      leaf.velocity.addScaledVector(this.liftDirection, Math.min(speed * speed, 36) * incidence * c.lift * leaf.lift / leaf.mass * dt);
+      leaf.velocity.y -= c.gravity * dt;
+      // Keep this single population in a shallow volume without visible depth resets.
+      leaf.velocity.z += (-(leaf.position.z + 1) * 0.8 - leaf.velocity.z * 0.6) * dt;
+      leaf.velocity.clampLength(0, 9);
+      leaf.position.addScaledVector(leaf.velocity, dt);
+
+      // Aerodynamic alignment competes with asymmetric tumbling and edge flutter.
+      // Damping permits brief settled attitudes between changes in local wind.
+      this.torque.crossVectors(this.normal, this.flow).multiplyScalar(incidence * speed * 1.8);
+      this.torque.x += c.tumble * speed * 0.35 * Math.sin(leaf.phase + this.time * 0.73);
+      this.torque.y += c.tumble * speed * 0.28 * Math.cos(leaf.phase * 1.7 + this.time * 0.91);
+      this.torque.z += c.tumble * speed * 0.22 * Math.sin(leaf.phase * 2.3 + this.time * 0.49);
+      const flutter = c.flutter * speed * Math.sin(this.time * leaf.frequency + leaf.phase);
+      this.torque.addScaledVector(this.flow, flutter);
+      leaf.angularVelocity.addScaledVector(this.torque, dt / leaf.mass).multiplyScalar(Math.exp(-c.angularDamping * dt));
+      leaf.angularVelocity.clampLength(0, 8);
+      const angularSpeed = leaf.angularVelocity.length();
+      if (angularSpeed > 1e-8) {
+        this.torque.copy(leaf.angularVelocity).multiplyScalar(1 / angularSpeed);
+        this.increment.setFromAxisAngle(this.torque, angularSpeed * dt);
+        leaf.rotation.premultiply(this.increment).normalize();
+      }
+      if (Math.abs(leaf.position.x) > this.halfWidth + 1 || Math.abs(leaf.position.y) > this.halfHeight + 1) {
+        this.spawn(leaf, false);
+        this.recycled++;
+      }
+    }
+  }
+}

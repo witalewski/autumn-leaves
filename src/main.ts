@@ -1,14 +1,15 @@
 import './style.css';
-import { Color, DirectionalLight, HemisphereLight, MathUtils, PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
+import { Color, DirectionalLight, HemisphereLight, MathUtils, Mesh, PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
 import { createLeaf } from './leaf';
 import { createRenderer } from './renderer';
 import { createSky } from './sky';
+import { MotionSimulation, motionDefaults } from './simulation/MotionSimulation';
 
 export const settings = {
   sunAzimuth: 15, sunElevation: 10, sunIntensity: 3.2, sunColor: '#fff0d0', skyIntensity: 1.3,
   transmission: 1.15, roughness: 0.85, normalStrength: 0.65, leafColor: '#ffffff',
   haze: 0.45, clouds: 0.32, exposure: 1,
-  autoRotate: true, rotationSpeed: 0.13, tilt: -10, yaw: -16, roll: -22,
+  ...motionDefaults,
   renderScale: 1, dprCap: 1.75,
 };
 export type Settings = typeof settings;
@@ -17,11 +18,13 @@ const host = document.querySelector<HTMLElement>('#app')!;
 const fallback = document.querySelector<HTMLElement>('#fallback')!;
 const hint = document.querySelector<HTMLElement>('#interaction-hint')!;
 const params = new URLSearchParams(location.search);
+const requestedSeed = Number(params.get('seed'));
+if (params.has('seed') && Number.isFinite(requestedSeed)) settings.seed = requestedSeed >>> 0;
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
 let dispose = () => {};
 
 function showFallback(error: unknown) {
-  if (import.meta.env.DEV) console.error('Autumn material study:', error);
+  if (import.meta.env.DEV) console.error('Autumn motion study:', error);
   host.dataset.backend = 'Static';
   fallback.textContent = 'The sky is still here. Live rendering is unavailable in this browser.';
   fallback.hidden = false;
@@ -36,7 +39,7 @@ async function start() {
   const { renderer, capabilities } = await createRenderer(params.get('backend') === 'webgl');
   const canvas = renderer.domElement;
   canvas.tabIndex = 0;
-  canvas.setAttribute('aria-label', 'Autumn leaf. Drag or use arrow keys to rotate. Press Space to pause.');
+  canvas.setAttribute('aria-label', 'Autumn leaves drifting in wind. Press Space to pause or resume.');
   host.prepend(canvas);
   host.dataset.backend = capabilities.backend;
 
@@ -48,7 +51,22 @@ async function start() {
   const ambient = new HemisphereLight('#c1d9ef', '#72604c', settings.skyIntensity);
   const leaf = createLeaf(sunDirection, sunColor);
   const sky = createSky(sunDirection, sunColor);
-  scene.add(sky.mesh, leaf.mesh, sun, ambient);
+  const simulation = new MotionSimulation(settings);
+  // Phase 3 deliberately uses a small CPU prototype; GPU batching belongs to phase 4.
+  const leaves = simulation.leaves.map(() => {
+    const mesh = new Mesh(leaf.mesh.geometry, leaf.material);
+    mesh.scale.setScalar(0.3);
+    scene.add(mesh);
+    return mesh;
+  });
+  function syncLeaves() {
+    for (let i = 0; i < leaves.length; i++) {
+      leaves[i].visible = i < settings.leafCount;
+      leaves[i].position.copy(simulation.leaves[i].position);
+      leaves[i].quaternion.copy(simulation.leaves[i].rotation);
+    }
+  }
+  scene.add(sky.mesh, sun, ambient);
   const abort = new AbortController();
   const events = { signal: abort.signal };
   let failed = false;
@@ -64,8 +82,11 @@ async function start() {
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, settings.dprCap) * settings.renderScale);
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
-    camera.position.set(0, 0, 6.3 * Math.max(1, 0.78 / camera.aspect));
+    camera.position.set(0, 0, 16 * Math.max(1, 0.65 / camera.aspect));
     camera.updateProjectionMatrix();
+    // Include the far side of the shallow prototype volume and a leaf-size margin.
+    const halfHeight = Math.tan(MathUtils.degToRad(camera.fov / 2)) * (camera.position.z + 5);
+    simulation.setBounds(halfHeight * camera.aspect + 1, halfHeight + 1);
   }
 
   function applySettings() {
@@ -86,8 +107,8 @@ async function start() {
     sky.clouds.value = settings.clouds;
     sky.sunIntensity.value = settings.sunIntensity;
     renderer.toneMappingExposure = settings.exposure;
-    leaf.mesh.rotation.set(MathUtils.degToRad(settings.tilt), MathUtils.degToRad(settings.yaw), MathUtils.degToRad(settings.roll));
-    hint.textContent = settings.autoRotate ? 'Drag to turn · Space to pause' : 'Drag to turn · Space to resume';
+    hint.textContent = settings.running ? 'Space to pause' : 'Paused · Space to resume';
+    syncLeaves();
   }
 
   function fail(error: unknown) {
@@ -99,45 +120,11 @@ async function start() {
   renderer.onDeviceLost = (info) => fail(info);
   renderer.onError = (message) => fail(message);
 
-  let dragging = false, pointerId = -1, previousX = 0, previousY = 0;
-  canvas.addEventListener('pointerdown', (event) => {
-    if (!event.isPrimary || event.button !== 0) return;
-    dragging = true;
-    pointerId = event.pointerId;
-    previousX = event.clientX;
-    previousY = event.clientY;
-    settings.autoRotate = false;
-    canvas.setPointerCapture(pointerId);
-    canvas.focus({ preventScroll: true });
-    applySettings();
-  }, events);
-  canvas.addEventListener('pointermove', (event) => {
-    if (!dragging || event.pointerId !== pointerId) return;
-    settings.yaw = MathUtils.euclideanModulo(settings.yaw + (event.clientX - previousX) * 0.4 + 180, 360) - 180;
-    settings.tilt = MathUtils.clamp(settings.tilt + (event.clientY - previousY) * 0.3, -180, 180);
-    previousX = event.clientX;
-    previousY = event.clientY;
-    applySettings();
-  }, events);
-  canvas.addEventListener('lostpointercapture', () => { dragging = false; }, events);
-  canvas.addEventListener('pointerup', (event) => {
-    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-    dragging = false;
-  }, events);
-  canvas.addEventListener('pointercancel', () => { dragging = false; }, events);
   window.addEventListener('keydown', (event) => {
     if (event.target instanceof HTMLElement && event.target.closest('input, button, select, textarea, .lil-gui')) return;
-    if (event.code === 'Space') {
-      event.preventDefault();
-      settings.autoRotate = !settings.autoRotate;
-    } else if (event.key.startsWith('Arrow')) {
-      event.preventDefault();
-      settings.autoRotate = false;
-      if (event.key === 'ArrowLeft') settings.yaw -= 5;
-      if (event.key === 'ArrowRight') settings.yaw += 5;
-      if (event.key === 'ArrowUp') settings.tilt -= 5;
-      if (event.key === 'ArrowDown') settings.tilt += 5;
-    } else return;
+    if (event.code !== 'Space' || event.repeat) return;
+    event.preventDefault();
+    settings.running = !settings.running;
     applySettings();
   }, events);
 
@@ -146,11 +133,8 @@ async function start() {
     const elapsed = lastTime ? (now - lastTime) / 1000 : 0;
     const dt = Math.min(elapsed, 0.05);
     lastTime = now;
-    if (settings.autoRotate && !dragging) {
-      const speed = settings.rotationSpeed * (motion.matches ? 0.08 : 1);
-      settings.yaw = MathUtils.euclideanModulo(settings.yaw + MathUtils.radToDeg(dt * speed) + 180, 360) - 180;
-      leaf.mesh.rotation.y = MathUtils.degToRad(settings.yaw);
-    }
+    simulation.update(dt, motion.matches);
+    syncLeaves();
     try { renderer.render(scene, camera); } catch (error) { fail(error); return; }
     if (failed) return;
     sampleTime += elapsed;
@@ -187,12 +171,14 @@ async function start() {
   };
   applySettings();
   resize();
+  simulation.reset();
+  syncLeaves();
   // Compile before dismissing the loading state, so shader failures retain the static sky.
   await renderer.compileAsync(scene, camera);
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize);
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { simulation.reset(); syncLeaves(); });
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;

@@ -1,6 +1,6 @@
-# Autumn — a study of light
+# Autumn — a study of motion
 
-The **First Implementation Task** in `specs.md`: Phase 1 (renderer and sky) and Phase 2 (one leaf). This is a visual prototype for reviewing the material and lighting before adding motion simulation.
+Phases 1–3 of `specs.md`: the procedural sky and leaf material now support a small CPU aerodynamic motion prototype. The default scene contains 32 leaves, adjustable between 20 and 50 in development.
 
 ## Run
 
@@ -14,6 +14,7 @@ npm run dev
 Open the local URL printed by Vite (normally http://127.0.0.1:5173).
 
 ```sh
+npm test          # CPU simulation regression tests
 npm run check     # TypeScript
 npm run build     # TypeScript + production bundle
 npm run preview   # Serve the built application
@@ -35,36 +36,39 @@ For future textures, models, or other static assets:
 
 This follows [Vite's relative-base support](https://vite.dev/guide/build#relative-base). If client-side routes are introduced later, revisit the base/routing strategy; this prototype has a single page and no router.
 
-## Inspect the leaf
+## Inspect the motion
 
-- Drag the canvas to turn and tilt the leaf; dragging pauses automatic rotation.
-- Space pauses/resumes. Arrow keys rotate in five-degree steps.
-- The development panel adjusts sun position/color/intensity, sky fill, haze, cloud amount, leaf transmission, roughness, normal detail, tint, exposure, and orientation.
-- Set transmission to zero to compare the backlit material with ordinary opaque shading. Rotate through an edge-on angle to inspect curvature and the reverse side. Set sun azimuth near 180° to inspect front lighting.
-- Reset restores the initial study; Export downloads the current parameters as JSON.
-- The development overlay reports the actual renderer backend, FPS, mean frame interval, total draw/triangle counts, render scale, and effective DPR. These are observed CPU frame intervals, not GPU timings. The panel and overlay are omitted from production builds.
+- Space pauses/resumes the simulation.
+- The development panel exposes wind direction/speed, gust strength, turbulence, gravity, drag, lift, tumble, flutter, angular damping, and leaf count, alongside the existing lighting/material controls.
+- **Restart same seed** restores the initial population without changing controls. **Reset study** restores default controls and restarts. **Export parameters** downloads the current configuration as JSON.
+- The default seed is 2409. Append `?seed=42` for another repeatable population. Repeatability assumes the same viewport, controls, and simulation time.
+- Compare high/low drag for broadside braking, lift for gliding, tumble/flutter for orientation changes, and angular damping for calmer intervals. Gusts affect both translation and aerodynamic torque through relative airflow.
+- The development overlay reports the backend, FPS, mean frame interval, active leaf count, total draw/triangle counts, render scale, and DPR. These are CPU frame intervals, not GPU timings. Controls and statistics are omitted from production builds.
 
 ## Implementation
 
-Six small source files keep the prototype easy to tune:
+- `main.ts`: scene, shared leaf meshes, lighting, fixed camera, input, sizing, and lifecycle.
+- `simulation/MotionSimulation.ts`: seeded fixed-size state pool, spatial/time-varying wind, and CPU integration at 120 Hz. Gravity, orientation-dependent drag, perpendicular lift, aerodynamic alignment, asymmetric tumble, flutter, and angular damping drive velocity and quaternion orientation. Parameters vary per leaf. Scratch vectors are reused.
+- `renderer.ts`: WebGPURenderer initialization, backend detection, and filmic tone mapping.
+- `sky.ts`: TSL gradient, atmospheric sun glow, sun disc, and procedural cloud wisps.
+- `leaf.ts`: shared curved geometry and double-sided material with warm, thickness-modulated backlighting.
+- `debug.ts`: development controls and statistics.
+- `style.css`: canvas and captions.
 
-- `main.ts`: scene, lighting, camera, input, sizing, and lifecycle.
-- `renderer.ts`: Three.js WebGPURenderer initialization, actual backend detection, and filmic tone mapping.
-- `sky.ts`: TSL gradient, atmospheric sun glow, sun disc, and inexpensive procedural cloud wisps.
-- `leaf.ts`: one curved 44-triangle mesh, deterministic placeholder texture generation, and a double-sided TSL standard material with warm, thickness-modulated backlighting.
-- `debug.ts`: development-only controls and statistics.
-- `style.css`: full-screen canvas and minimal captions.
+Leaves recycle above or upstream of the frame. A weak depth-restoring force keeps this prototype in one shallow population. Velocity/torque limits keep exploratory control settings stable. This is an intentionally approximate visual model, not a calibrated fluid simulation.
 
 The 768×768 albedo/alpha, normal, and packed thickness/roughness maps are generated once at startup. They contain a serrated silhouette, branching veins, mottled autumn pigment, and fine surface variation. Albedo uses sRGB; data maps remain linear. The mesh closely follows the silhouette, uses alpha testing/MSAA coverage, and has no alpha blending. These are procedural **placeholder assets**, not scanned foliage. There are no external texture downloads.
 
 The renderer prefers WebGPU and lets Three.js fall back to WebGL2 with the same node materials. Append `?backend=webgl` to exercise WebGL2 explicitly. In development, `?backend=none` exercises the static CSS sky and unsupported-renderer message. Initialization, rendering, and device-loss errors also reveal that fallback. Reload to retry after device loss.
 
-Effective DPR is capped at 1.75 by default, with a separate render-scale control. The single animation loop stops when the document is hidden and clamps delta time on resume. Reduced-motion preference slows automatic rotation to 8% of normal speed; the camera stays fixed. HMR cleans up GPU resources, controls, listeners, and the frame loop.
+Effective DPR is capped at 1.75, with a separate render-scale control. The single animation loop stops while hidden and clamps elapsed time on resume. Reduced motion runs simulation time at 8% speed, slowing movement, rotation, gusts, and flutter together; the camera stays fixed. HMR cleans up resources, controls, listeners, and the frame loop.
 
 ## Scope boundary
 
-There is no particle system, wind/physics simulation, GPU compute, leaf population, adaptive quality controller, bloom, lens flare, depth of field, film grain, asset compression pipeline, or backend. The sky's sun glow is part of its material, not a post-processing effect. Procedural geometry/maps intentionally stand in for the later glTF/KTX2 asset pipeline. The next step is to review this leaf's appearance; later phases have not been started.
+Only phase 3 has been added. The small CPU prototype deliberately uses individual meshes sharing one geometry/material; instancing and GPU state/compute remain phase 4. There are no depth populations, LOD, adaptive quality, new post-processing, leaf variants, or asset-pipeline changes. All leaves have the same rendered scale. The existing sky/materials are retained.
 
 ## Verification
 
-The production build and strict TypeScript check pass. The scene has been visually checked in the local desktop browser using WebGPU and forced WebGL2; both report their selected backend and render the leaf without shader errors. A mobile-sized viewport checks layout and canvas sizing, not real mobile GPU performance. Photographic fidelity still needs artistic review, especially when replacing the placeholder maps with final assets.
+`npm test` checks seeded replay, render-cadence independence, pause/resume timing, reduced motion, recycling without replacing pool objects, finite state and unit quaternions over two simulated minutes at extreme controls, gravity/drag/damping response, and wind continuity. `npm run build` performs strict TypeScript checking and builds the production bundle.
+
+The phase 3 scene has been checked locally in WebGPU and forced WebGL2, including the pause control. Motion remains subject to artistic review; these checks do not establish performance on physical mobile devices.
