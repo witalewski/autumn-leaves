@@ -2,12 +2,16 @@ import { DynamicDrawUsage, InstancedMesh, Matrix4, Vector3, type WebGPURenderer 
 import type { createLeaf } from './leaf';
 import { MotionSimulation, type MotionConfig } from './simulation/MotionSimulation';
 import { createGpuMotion } from './simulation/GpuMotion';
+import { createPopulationBounds, createPopulationConfigs, type DepthCamera, type PopulationBounds, type PopulationId } from './simulation/DepthComposition';
 
 export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: MotionConfig, renderer: WebGPURenderer, gpu: boolean) {
-  const capacity = gpu ? 500 : 100;
+  const populations = createPopulationConfigs(gpu);
+  const populationBounds = new Map<PopulationId, PopulationBounds>();
+  const capacity = populations.reduce((total, population) => total + population.count, 0);
   const perBatch = capacity / leaf.palette.length;
   // CPU state exists only to seed GPU buffers on reset; it is never stepped on WebGPU.
-  const initial = new MotionSimulation({ ...config, leafCount: capacity }, capacity);
+  // GPU retains phase 4 seeding until step 4 ports population rules to compute.
+  const initial = new MotionSimulation({ ...config, leafCount: capacity }, capacity, gpu ? [] : populations);
   const scales = Array.from({ length: capacity }, () => new Vector3());
   const compute = gpu ? leaf.palette.map(() => createGpuMotion(perBatch)) : [];
   const meshes = leaf.palette.map((variant, index) => {
@@ -64,8 +68,20 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
     } else syncCpu();
   }
   return {
-    meshes, capacity,
+    meshes, capacity, populations, populationBounds,
     configure,
+    setCameraBounds(camera: DepthCamera) {
+      for (const population of populations) {
+        populationBounds.set(population.id, createPopulationBounds(camera, population.depth));
+      }
+      if (!gpu) initial.setPopulationBounds(populationBounds);
+      // Transitional phase 4 bounds for GPU seeding until step 4.
+      const legacy = createPopulationBounds(camera, { min: -5, max: 0 });
+      halfWidth = legacy.halfWidth;
+      halfHeight = legacy.halfHeight;
+      initial.setBounds(halfWidth, halfHeight);
+      configure();
+    },
     setBounds(width: number, height: number) {
       halfWidth = width; halfHeight = height;
       initial.setBounds(width, height);

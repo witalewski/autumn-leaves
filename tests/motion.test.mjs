@@ -86,3 +86,72 @@ test('wind is spatially varying and continuous', () => {
   const c = sampleWind(p.clone().addScalar(2), 1, sim.config, p.clone());
   assert.ok(a.distanceTo(c) > 0.1);
 });
+
+const depthSource = await readFile(new URL('../src/simulation/DepthComposition.ts', import.meta.url), 'utf8');
+const { code: depthCode } = await transformWithOxc(depthSource, 'DepthComposition.ts');
+const { createPopulationConfigs, createPopulationBounds, halfWidthAtDepth, halfHeightAtDepth } =
+  await import(`data:text/javascript;base64,${Buffer.from(depthCode).toString('base64')}`);
+const camera = (aspect = 16 / 9) => ({ position: { x: 0, y: 0, z: 16 * Math.max(1, 0.65 / aspect) }, fov: 40, aspect, zoom: 1, near: 0.1, far: 200 });
+const makeDepth = (changes = {}, aspect = 16 / 9) => {
+  const populations = createPopulationConfigs(false);
+  const bounds = new Map(populations.map(p => [p.id, createPopulationBounds(camera(aspect), p.depth)]));
+  const sim = new MotionSimulation({ ...motionDefaults, leafCount: 100, ...changes }, 100, populations);
+  sim.setPopulationBounds(bounds);
+  sim.reset();
+  return { sim, populations, bounds };
+};
+
+test('CPU populations preserve exact counts, mixed visible prefixes, and seeded replay', () => {
+  const { sim, populations } = makeDepth();
+  for (const population of populations) assert.equal(sim.leaves.filter(l => l.population === population.id).length, population.count);
+  assert.equal(new Set(sim.leaves.slice(0, 20).map(l => l.population)).size, 3);
+  const assignments = sim.leaves.map(l => l.population);
+  advance(sim, 10, 30);
+  const expected = state(sim);
+  sim.reset();
+  advance(sim, 10, 120);
+  assert.equal(state(sim), expected);
+  assert.deepEqual(sim.leaves.map(l => l.population), assignments);
+});
+
+test('CPU recycling respawns offscreen within the same depth band in either wind direction', () => {
+  for (const windDirection of [0, 180]) {
+    const { sim, bounds } = makeDepth({ windDirection });
+    const references = [...sim.leaves];
+    sim.leaves.forEach(leaf => { leaf.position.x = 1000; });
+    sim.update(1 / 120);
+    assert.equal(sim.recycled, 100);
+    sim.leaves.forEach((leaf, i) => {
+      assert.equal(leaf, references[i]);
+      const b = bounds.get(leaf.population);
+      assert.ok(leaf.position.z >= b.minZ && leaf.position.z <= b.maxZ);
+      const x = halfWidthAtDepth(b, leaf.position.z), y = halfHeightAtDepth(b, leaf.position.z);
+      const upstream = windDirection === 0 ? -x : x;
+      assert.ok(Math.abs(leaf.position.x - upstream) < 1e-10 || Math.abs(leaf.position.y - y) < 1e-10);
+    });
+  }
+});
+
+test('CPU depth populations stay finite and bounded under extreme controls and resize', () => {
+  const { sim, populations } = makeDepth({ drag: 3, lift: 2, tumble: 3, flutter: 2, angularDamping: 0, windSpeed: 5, gustStrength: 5, turbulence: 2 });
+  const references = [...sim.leaves];
+  for (const aspect of [16 / 9, 9 / 16]) {
+    const bounds = new Map(populations.map(p => [p.id, createPopulationBounds(camera(aspect), p.depth)]));
+    const beforeResize = state(sim);
+    sim.setPopulationBounds(bounds);
+    assert.equal(state(sim), beforeResize);
+    for (let frame = 0; frame < 60 * 60; frame++) {
+      sim.update(1 / 60);
+      sim.leaves.forEach((leaf, i) => {
+        const b = bounds.get(leaf.population);
+        assert.equal(leaf, references[i]);
+        assert.ok(leaf.position.z >= b.minZ && leaf.position.z <= b.maxZ);
+        assert.ok(Math.abs(leaf.position.x) <= halfWidthAtDepth(b, leaf.position.z) + 1 + 1e-10);
+        assert.ok(Math.abs(leaf.position.y) <= halfHeightAtDepth(b, leaf.position.z) + 1 + 1e-10);
+        assert.ok([...leaf.position.toArray(), ...leaf.velocity.toArray(), ...leaf.rotation.toArray()].every(Number.isFinite));
+        assert.ok(Math.abs(leaf.rotation.length() - 1) < 1e-10);
+      });
+    }
+  }
+  assert.ok(sim.recycled > 0);
+});

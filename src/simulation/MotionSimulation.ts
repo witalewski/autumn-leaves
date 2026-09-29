@@ -1,4 +1,5 @@
 import { Quaternion, Vector3 } from 'three/webgpu';
+import type { PopulationBounds, PopulationConfig, PopulationId } from './DepthComposition';
 
 export const motionDefaults = {
   running: true, leafCount: 32, seed: 2409,
@@ -7,6 +8,7 @@ export const motionDefaults = {
 };
 export type MotionConfig = typeof motionDefaults;
 export interface LeafState {
+  readonly population: PopulationId | null;
   position: Vector3;
   velocity: Vector3;
   rotation: Quaternion;
@@ -45,6 +47,7 @@ export class MotionSimulation {
   private randomState = 1;
   private halfWidth = 10;
   private halfHeight = 6;
+  private populationBounds: ReadonlyMap<PopulationId, PopulationBounds> = new Map();
   private readonly air = new Vector3();
   private readonly normal = new Vector3();
   private readonly flow = new Vector3();
@@ -52,17 +55,41 @@ export class MotionSimulation {
   private readonly torque = new Vector3();
   private readonly increment = new Quaternion();
 
-  constructor(readonly config: MotionConfig, capacity = 50) {
-    this.leaves = Array.from({ length: capacity }, () => ({
+  constructor(readonly config: MotionConfig, capacity = 50, populations: readonly PopulationConfig[] = []) {
+    if (populations.length && (populations.some(p => !Number.isInteger(p.count) || p.count < 0)
+      || populations.reduce((sum, p) => sum + p.count, 0) !== capacity
+      || new Set(populations.map(p => p.id)).size !== populations.length)) {
+      throw new RangeError('Population counts must partition the simulation capacity');
+    }
+    // Interleave weighted populations so the visible prefix includes depth variety.
+    // Assignment consumes no motion randomness and survives reset/recycling.
+    const assigned = populations.map(() => 0);
+    this.leaves = Array.from({ length: capacity }, (_, index) => {
+      let selected = -1, deficit = -Infinity;
+      populations.forEach((population, i) => {
+        const next = (index + 1) * population.count / capacity - assigned[i];
+        if (assigned[i] < population.count && next > deficit) { selected = i; deficit = next; }
+      });
+      if (selected >= 0) assigned[selected]++;
+      return {
+      population: selected < 0 ? null : populations[selected].id,
       position: new Vector3(), velocity: new Vector3(), rotation: new Quaternion(),
       angularVelocity: new Vector3(), mass: 1, drag: 1, lift: 1, phase: 0, frequency: 1,
-    }));
+      };
+    });
     this.reset();
   }
 
   setBounds(halfWidth: number, halfHeight: number) {
     this.halfWidth = halfWidth;
     this.halfHeight = halfHeight;
+  }
+
+  setPopulationBounds(bounds: ReadonlyMap<PopulationId, PopulationBounds>) {
+    for (const leaf of this.leaves) {
+      if (leaf.population !== null && !bounds.has(leaf.population)) throw new RangeError('Missing population bounds');
+    }
+    this.populationBounds = bounds;
   }
 
   private random() {
@@ -77,13 +104,19 @@ export class MotionSimulation {
   }
 
   private spawn(leaf: LeafState, initial: boolean) {
-    const x = this.halfWidth, y = this.halfHeight;
-    leaf.position.set((this.random() * 2 - 1) * x, (this.random() * 2 - 1) * y, -this.random() * 2);
+    const bounds = leaf.population === null ? undefined : this.populationBounds.get(leaf.population);
+    const rx = this.random(), ry = this.random(), rz = this.random();
+    const z = bounds ? bounds.minZ + rz * (bounds.maxZ - bounds.minZ) : -rz * 2;
+    const distance = bounds ? bounds.cameraZ - z : 0;
+    const x = bounds ? distance * bounds.halfWidthPerDistance + bounds.margin : this.halfWidth;
+    const y = bounds ? distance * bounds.halfHeightPerDistance + bounds.margin : this.halfHeight;
+    leaf.position.set((rx * 2 - 1) * x, (ry * 2 - 1) * y, z);
     if (!initial) {
       // Top or upstream edge, beyond the visible frame and leaf radius.
       if (this.random() < 0.45) leaf.position.y = y;
       else leaf.position.x = Math.cos(this.config.windDirection * Math.PI / 180) >= 0 ? -x : x;
     }
+    if (bounds) { leaf.position.x += bounds.centerX; leaf.position.y += bounds.centerY; }
     leaf.mass = 0.8 + this.random() * 0.4;
     leaf.drag = 0.8 + this.random() * 0.4;
     leaf.lift = 0.7 + this.random() * 0.6;
@@ -113,6 +146,7 @@ export class MotionSimulation {
     this.time += dt;
     for (let i = 0; i < c.leafCount; i++) {
       const leaf = this.leaves[i];
+      const bounds = leaf.population === null ? undefined : this.populationBounds.get(leaf.population);
       this.normal.set(0, 0, 1).applyQuaternion(leaf.rotation);
       sampleWind(leaf.position, this.time, c, this.air).sub(leaf.velocity);
       const speed = this.air.length();
@@ -126,10 +160,18 @@ export class MotionSimulation {
       this.liftDirection.copy(this.normal).addScaledVector(this.flow, -incidence);
       leaf.velocity.addScaledVector(this.liftDirection, Math.min(speed * speed, 36) * incidence * c.lift * leaf.lift / leaf.mass * dt);
       leaf.velocity.y -= c.gravity * dt;
-      // Keep this single population in a shallow volume without visible depth resets.
-      leaf.velocity.z += (-(leaf.position.z + 1) * 0.8 - leaf.velocity.z * 0.6) * dt;
+      // A soft spring retains each depth band; no visible depth-triggered respawns.
+      const centerZ = bounds ? (bounds.minZ + bounds.maxZ) / 2 : -1;
+      const halfDepth = bounds ? (bounds.maxZ - bounds.minZ) / 2 : 1;
+      const displacement = (leaf.position.z - centerZ) / halfDepth;
+      leaf.velocity.z += (-displacement * 0.8 - leaf.velocity.z * 0.6) * dt;
       leaf.velocity.clampLength(0, 9);
       leaf.position.addScaledVector(leaf.velocity, dt);
+      if (bounds && (leaf.position.z < bounds.minZ || leaf.position.z > bounds.maxZ)) {
+        leaf.position.z = Math.max(bounds.minZ, Math.min(bounds.maxZ, leaf.position.z));
+        if ((leaf.position.z === bounds.minZ && leaf.velocity.z < 0)
+          || (leaf.position.z === bounds.maxZ && leaf.velocity.z > 0)) leaf.velocity.z = 0;
+      }
 
       // Aerodynamic alignment competes with asymmetric tumbling and edge flutter.
       // Damping permits brief settled attitudes between changes in local wind.
@@ -147,7 +189,11 @@ export class MotionSimulation {
         this.increment.setFromAxisAngle(this.torque, angularSpeed * dt);
         leaf.rotation.premultiply(this.increment).normalize();
       }
-      if (Math.abs(leaf.position.x) > this.halfWidth + 1 || Math.abs(leaf.position.y) > this.halfHeight + 1) {
+      const distance = bounds ? bounds.cameraZ - leaf.position.z : 0;
+      const extentX = bounds ? distance * bounds.halfWidthPerDistance + bounds.margin : this.halfWidth;
+      const extentY = bounds ? distance * bounds.halfHeightPerDistance + bounds.margin : this.halfHeight;
+      if (Math.abs(leaf.position.x - (bounds?.centerX ?? 0)) > extentX + 1
+        || Math.abs(leaf.position.y - (bounds?.centerY ?? 0)) > extentY + 1) {
         this.spawn(leaf, false);
         this.recycled++;
       }

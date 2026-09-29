@@ -69,14 +69,13 @@ async function start() {
 
   function resize() {
     const width = host.clientWidth, height = host.clientHeight;
+    if (width <= 0 || height <= 0) return;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, settings.dprCap) * settings.renderScale);
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.position.set(0, 0, 16 * Math.max(1, 0.65 / camera.aspect));
     camera.updateProjectionMatrix();
-    // Include the far side of the shallow prototype volume and a leaf-size margin.
-    const halfHeight = Math.tan(MathUtils.degToRad(camera.fov / 2)) * (camera.position.z + 5);
-    foliage.setBounds(halfHeight * camera.aspect + 1, halfHeight + 1);
+    foliage.setCameraBounds(camera);
   }
 
   function applySettings() {

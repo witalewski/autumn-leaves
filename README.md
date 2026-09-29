@@ -73,6 +73,14 @@ Phase 4 adds GPU state/compute and instanced rendering. The phase 3 CPU model re
 
 ## Verification
 
+### Phase 5 foundation (steps 1–2)
+
+`simulation/DepthComposition.ts` defines independent foreground/midground/background settings: pool counts of 20/170/310 on WebGPU and 5/35/60 on WebGL2, world-space depth and scale ranges, and geometry/material detail tiers. Counts sum to the existing backend capacities; they do not change the current visible-count defaults. Depth ranges are world-space Z coordinates for the fixed camera looking along -Z: foreground 4 to 10, midground -6 to 4, background -35 to -6. These are initial tuning values.
+
+`LeafSystem.setCameraBounds` computes each population's volume on startup and resize using the camera position, vertical FOV, aspect, zoom, and clipping planes. Bounds include a one-unit offscreen margin and per-distance extents for evaluating the frustum at any leaf depth. Resizing does not reset simulation state. Empty viewports are skipped.
+
+This is configuration and bounds infrastructure only: population assignment, spawning/recycling, and GPU integration follow in steps 3–4; render batching, scale application, and LOD follow later. The running simulation retains its phase 4 shallow bounds and appearance in the meantime. `tests/depth.test.mjs` checks camera projection across aspect ratios and zoom, clipping, independent settings, and compatibility with the existing shallow bounds.
+
 `npm test` checks seeded replay, render-cadence independence, pause/resume timing, reduced motion, recycling without replacing pool objects, finite state and unit quaternions over two simulated minutes at extreme controls, gravity/drag/damping response, and wind continuity. `npm run build` performs strict TypeScript checking and builds the production bundle.
 
 For GPU integration checks, run the dev server and open `/tests/gpu.html` in a WebGPU browser. This development-only harness compares 500 initial matrices and 120 integration steps against the CPU reference, checks reset replay and recycling, and exercises extreme controls for five simulated seconds. Readback exists only in that test. The test page is not included in the production build. GPU and CPU respawn random sequences intentionally differ, and different GPUs are not guaranteed bit-identical floating-point results.
