@@ -2,9 +2,9 @@ import GUI from 'lil-gui';
 import type { WebGPURenderer } from 'three/webgpu';
 import type { Settings } from './main';
 
-export function createDebug(settings: Settings, renderer: WebGPURenderer, backend: string, apply: () => void, resize: () => void, restart: () => void) {
+export function createDebug(settings: Settings, renderer: WebGPURenderer, backend: string, apply: () => void, resize: () => void, restart: () => void, capacity: number) {
   const defaults = { ...settings };
-  const gui = new GUI({ title: 'CPU motion study', width: 260 });
+  const gui = new GUI({ title: 'Instanced motion study', width: 260 });
   const lighting = gui.addFolder('Sun & sky');
   lighting.add(settings, 'sunAzimuth', -180, 180, 0.1).name('Sun azimuth');
   lighting.add(settings, 'sunElevation', -15, 80, 0.1).name('Sun elevation');
@@ -19,9 +19,9 @@ export function createDebug(settings: Settings, renderer: WebGPURenderer, backen
   material.add(settings, 'roughness', 0.1, 1, 0.01).name('Roughness');
   material.add(settings, 'normalStrength', 0, 2, 0.01).name('Normal detail');
   material.addColor(settings, 'leafColor').name('Albedo tint');
-  const motion = gui.addFolder('CPU motion');
+  const motion = gui.addFolder(backend === 'WebGPU' ? 'GPU compute motion' : 'CPU fallback motion');
   motion.add(settings, 'running').name('Run simulation').listen();
-  motion.add(settings, 'leafCount', 20, 50, 1).name('Leaves');
+  motion.add(settings, 'leafCount', 20, capacity, 1).name('Leaves');
   motion.add(settings, 'seed', 0, 65535, 1).name('Seed').onFinishChange(restart);
   motion.add(settings, 'windDirection', -180, 180, 1).name('Wind direction (°)');
   motion.add(settings, 'windSpeed', 0, 5, 0.05).name('Wind speed');
@@ -61,7 +61,7 @@ export function createDebug(settings: Settings, renderer: WebGPURenderer, backen
   document.querySelector('#app')!.append(overlay);
   return {
     update(fps: number, ms: number) {
-      overlay.textContent = `${backend}  ${fps.toFixed(0)} FPS  ${ms.toFixed(1)} ms\n${settings.leafCount} leaves · CPU · ${renderer.info.render.drawCalls} draws · ${renderer.info.render.triangles} tris\nScale ${settings.renderScale.toFixed(2)} · DPR ${renderer.getPixelRatio().toFixed(2)}`;
+      overlay.textContent = `${backend}  ${fps.toFixed(0)} FPS  ${ms.toFixed(1)} ms\n${settings.leafCount} leaves · ${backend === 'WebGPU' ? 'GPU compute' : 'CPU fallback'} · ${renderer.info.render.drawCalls} draws · ${renderer.info.render.triangles} tris\nScale ${settings.renderScale.toFixed(2)} · DPR ${renderer.getPixelRatio().toFixed(2)}`;
     },
     destroy() { gui.destroy(); overlay.remove(); },
   };

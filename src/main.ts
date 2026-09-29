@@ -1,9 +1,10 @@
 import './style.css';
-import { Color, DirectionalLight, HemisphereLight, MathUtils, Mesh, PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
+import { Color, DirectionalLight, HemisphereLight, MathUtils, PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
 import { createLeaf } from './leaf';
 import { createRenderer } from './renderer';
 import { createSky } from './sky';
-import { MotionSimulation, motionDefaults } from './simulation/MotionSimulation';
+import { createLeafSystem } from './LeafSystem';
+import { motionDefaults } from './simulation/MotionSimulation';
 
 export const settings = {
   sunAzimuth: 15, sunElevation: 10, sunIntensity: 3.2, sunColor: '#fff0d0', skyIntensity: 1.3,
@@ -21,6 +22,7 @@ const params = new URLSearchParams(location.search);
 const requestedSeed = Number(params.get('seed'));
 if (params.has('seed') && Number.isFinite(requestedSeed)) settings.seed = requestedSeed >>> 0;
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
+const touchInput = matchMedia('(pointer: coarse)');
 let dispose = () => {};
 
 function showFallback(error: unknown) {
@@ -39,7 +41,6 @@ async function start() {
   const { renderer, capabilities } = await createRenderer(params.get('backend') === 'webgl');
   const canvas = renderer.domElement;
   canvas.tabIndex = 0;
-  canvas.setAttribute('aria-label', 'Autumn leaves drifting in wind. Press Space to pause or resume.');
   host.prepend(canvas);
   host.dataset.backend = capabilities.backend;
 
@@ -51,37 +52,10 @@ async function start() {
   const ambient = new HemisphereLight('#c1d9ef', '#72604c', settings.skyIntensity);
   const leaf = createLeaf(sunDirection, sunColor);
   const sky = createSky(sunDirection, sunColor);
-  const simulation = new MotionSimulation(settings);
-  // Phase 3 deliberately uses a small CPU prototype; GPU batching belongs to phase 4.
-  const leaves = simulation.leaves.map(() => {
-    const mesh = new Mesh(leaf.mesh.geometry, leaf.material);
-    mesh.scale.setScalar(0.3);
-    scene.add(mesh);
-    return mesh;
-  });
-  function applyLeafVariety() {
-    // A separate seeded stream leaves the aerodynamic replay unchanged.
-    let seed = (settings.seed ^ 0x9e3779b9) >>> 0;
-    const random = () => {
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      return seed / 4294967296;
-    };
-    for (const mesh of leaves) {
-      const size = 0.23 + random() * 0.16;
-      const width = 0.72 + random() * 0.56;
-      const curl = 0.65 + random() * 0.85;
-      mesh.scale.set(size * width, size, size * curl);
-      mesh.material = leaf.palette[Math.floor(random() * leaf.palette.length)].material;
-    }
-  }
-  applyLeafVariety();
-  function syncLeaves() {
-    for (let i = 0; i < leaves.length; i++) {
-      leaves[i].visible = i < settings.leafCount;
-      leaves[i].position.copy(simulation.leaves[i].position);
-      leaves[i].quaternion.copy(simulation.leaves[i].rotation);
-    }
-  }
+  const gpu = capabilities.backend === 'WebGPU';
+  settings.leafCount = import.meta.env.DEV ? (gpu ? 500 : 100) : motionDefaults.leafCount;
+  const foliage = createLeafSystem(leaf, settings, renderer, gpu);
+  scene.add(...foliage.meshes);
   scene.add(sky.mesh, sun, ambient);
   const abort = new AbortController();
   const events = { signal: abort.signal };
@@ -102,7 +76,7 @@ async function start() {
     camera.updateProjectionMatrix();
     // Include the far side of the shallow prototype volume and a leaf-size margin.
     const halfHeight = Math.tan(MathUtils.degToRad(camera.fov / 2)) * (camera.position.z + 5);
-    simulation.setBounds(halfHeight * camera.aspect + 1, halfHeight + 1);
+    foliage.setBounds(halfHeight * camera.aspect + 1, halfHeight + 1);
   }
 
   function applySettings() {
@@ -128,8 +102,8 @@ async function start() {
     sky.clouds.value = settings.clouds;
     sky.sunIntensity.value = settings.sunIntensity;
     renderer.toneMappingExposure = settings.exposure;
-    hint.textContent = settings.running ? 'Space to pause' : 'Paused · Space to resume';
-    syncLeaves();
+    updateInteractionHint();
+    foliage.configure();
   }
 
   function fail(error: unknown) {
@@ -141,12 +115,28 @@ async function start() {
   renderer.onDeviceLost = (info) => fail(info);
   renderer.onError = (message) => fail(message);
 
+  function updateInteractionHint() {
+    const action = settings.running ? 'pause' : 'resume';
+    const input = touchInput.matches ? 'Tap' : 'Space';
+    hint.textContent = `${settings.running ? '' : 'Paused · '}${input} to ${action}`;
+    canvas.setAttribute('aria-label', `Autumn leaves drifting in wind. Press Space or tap to ${action}.`);
+  }
+  function toggleMotion() {
+    settings.running = !settings.running;
+    applySettings();
+  }
+  touchInput.addEventListener('change', updateInteractionHint, events);
+  // A canvas click covers touch taps and mouse clicks; controls outside the
+  // canvas keep their own behavior. Native click recognition excludes scrolling.
+  canvas.addEventListener('click', (event) => {
+    if (event.button === 0) toggleMotion();
+  }, events);
+
   window.addEventListener('keydown', (event) => {
     if (event.target instanceof HTMLElement && event.target.closest('input, button, select, textarea, .lil-gui')) return;
     if (event.code !== 'Space' || event.repeat) return;
     event.preventDefault();
-    settings.running = !settings.running;
-    applySettings();
+    toggleMotion();
   }, events);
 
   function frame(now: number) {
@@ -154,9 +144,10 @@ async function start() {
     const elapsed = lastTime ? (now - lastTime) / 1000 : 0;
     const dt = Math.min(elapsed, 0.05);
     lastTime = now;
-    simulation.update(dt, motion.matches);
-    syncLeaves();
-    try { renderer.render(scene, camera); } catch (error) { fail(error); return; }
+    try {
+      foliage.update(dt, motion.matches);
+      renderer.render(scene, camera);
+    } catch (error) { fail(error); return; }
     if (failed) return;
     sampleTime += elapsed;
     sampleFrames++;
@@ -185,6 +176,7 @@ async function start() {
     abort.abort();
     observer.disconnect();
     stats?.destroy();
+    foliage.dispose();
     leaf.dispose();
     sky.dispose();
     renderer.dispose();
@@ -192,14 +184,13 @@ async function start() {
   };
   applySettings();
   resize();
-  simulation.reset();
-  syncLeaves();
+  foliage.reset();
   // Compile before dismissing the loading state, so shader failures retain the static sky.
   await renderer.compileAsync(scene, camera);
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { simulation.reset(); applyLeafVariety(); syncLeaves(); });
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => foliage.reset(), foliage.capacity);
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;

@@ -1,7 +1,7 @@
 {
   "name": "autumn-leaves",
   "version": "1.0.0",
-  "description": "Phase 3: CPU aerodynamic motion prototype",
+  "description": "Phase 4: GPU leaf simulation and instanced rendering",
   "private": true,
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
