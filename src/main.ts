@@ -57,7 +57,7 @@ async function start() {
   const leaf = createLeaf(sunDirection, sunColor);
   const sky = createSky(sunDirection, sunColor);
   const gpu = capabilities.backend === 'WebGPU';
-  settings.leafCount = gpu ? 500 : 100;
+  settings.leafCount = import.meta.env.DEV ? (gpu ? 500 : 100) : motionDefaults.leafCount;
   const foliage = createLeafSystem(leaf, settings, renderer, gpu);
   scene.add(...foliage.meshes);
   scene.add(sky.mesh, sun, ambient);

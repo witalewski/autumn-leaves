@@ -1,6 +1,6 @@
 # Autumn — a study of motion
 
-Phases 1–5 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Both development and production now use 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
+Phases 1–5 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Production defaults to 32 visible leaves on both backends. Development uses 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
 
 ## Run
 
@@ -81,7 +81,7 @@ The fixed camera looks along -Z. Population bounds derive from camera position, 
 
 All fifteen foliage batches are conservatively drawn because GPU transforms have no CPU bounding sphere. Full WebGPU foliage costs 11,840 triangles versus 22,000 with the former geometry at 500 leaves (about 46% fewer). Total scene draws rise from 7 to 17; the local browser check reports 12,801 total scene triangles. WebGL2 uses the same composition rules with a smaller CPU pool and 3,361 total scene triangles.
 
-The 32-leaf production default has been replaced by the backend capacities above so production shows the depth composition. The development controls can reduce visible counts without rebuilding pools. Adaptive quality, cinematic post-processing, compressed assets, new botanical silhouettes, and final artistic tuning remain later phases.
+Production shows 32 leaves distributed across the three depth populations; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Adaptive quality, cinematic post-processing, compressed assets, new botanical silhouettes, and final artistic tuning remain later phases.
 
 ## Verification
 
