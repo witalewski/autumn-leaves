@@ -156,7 +156,7 @@ async function start() {
     lastTime = now;
     try {
       foliage.update(dt, motion.matches);
-      post.render(motion.matches);
+      post.render(motion.matches, dt);
     } catch (error) { fail(error); return; }
     if (failed) return;
     sampleTime += elapsed;

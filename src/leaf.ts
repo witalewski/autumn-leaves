@@ -64,13 +64,21 @@ function createTextures(pattern: number) {
       const veins = Math.min(1, midrib + vein * 0.6 + veinlets);
       const rim = Math.exp(-Math.max(0, edge) * 170);
       const spot = Math.max(0, noise(x * 130, t * 150) - 0.8) * 1.5;
-      const patch = noise(x * 6 + pattern * 19, t * 5 + pattern * 7);
+      // Warp the red/gold pigment field off the texture grid. Independent,
+      // signed coordinates keep patches from mirroring across the midrib;
+      // overlapping scales break up the former rounded gold islands.
+      const redWarpX = pattern === 1 ? noise(x * 5.7 + 83.2, t * 4.3 + 17.6) - 0.5 : 0;
+      const redWarpY = pattern === 1 ? noise(x * 4.1 + 31.8, t * 6.2 + 61.3) - 0.5 : 0;
+      const patch = pattern === 1
+        ? noise(x * 5.1 + t * 2.7 + redWarpX * 1.7 + 91.4, t * 4.6 - x * 3.2 + redWarpY * 1.5 + 23.8) * 0.7
+          + noise(x * 15.3 + redWarpY * 2 + 8.7, t * 13.1 + redWarpX * 2 + 47.2) * 0.3
+        : noise(x * 6 + pattern * 19, t * 5 + pattern * 7);
       const stain = Math.max(0, Math.min(1, (patch - 0.36) * 3.5));
       const edgeBurn = Math.min(1, rim * (0.3 + medium * 0.7));
       // Broad pigment transitions, asymmetric green remnants, red tips, and
       // small freckles. These alter albedo, not just the overall material tint.
       const pigment = pattern === 0 ? stain * 0.5
-        : pattern === 1 ? Math.min(1, stain * 0.8 + Math.max(0, t - 0.55) * 1.3)
+        : pattern === 1 ? Math.max(0, Math.min(1, (patch - 0.28) * 2.5 + redWarpY * 0.22))
         : pattern === 2 ? Math.min(1, stain * 0.55 + edgeBurn * 0.6)
         : pattern === 3 ? Math.min(1, stain * 0.7 + (x > 0 ? 0.22 : 0))
         : Math.max(0, Math.min(1, (patch - 0.42) * 5 + t * 0.5));

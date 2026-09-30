@@ -61,7 +61,7 @@ test('real CPU foliage batches preserve seeded transforms, count controls, and r
   const shapeSnapshot = () => system.meshes.map(mesh => Array.from(mesh.geometry.attributes.position.array));
   const seededShapes = shapeSnapshot();
   assert.equal(system.meshes.length, 15);
-  assert.deepEqual(system.getPopulationCounts().map(p => p.count), [5, 35, 60]);
+  assert.deepEqual(system.getPopulationCounts().map(p => p.count), [10, 40, 50]);
   for (let frame = 0; frame < 60; frame++) system.update(1 / 60, false);
   assert.notDeepEqual(snapshot(), seeded);
   system.reset();

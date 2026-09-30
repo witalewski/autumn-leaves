@@ -73,6 +73,7 @@ export function createDebug(settings: Settings, renderer: WebGPURenderer, backen
   post.add(settings, 'shadowCoolness', 0, 0.15, 0.005).name('Shadow coolness');
   post.add(settings, 'blackLevel', -0.03, 0.05, 0.001).name('Black level');
   post.add(settings, 'vignetteStrength', 0, 0.6, 0.01).name('Vignette');
+  post.add(settings, 'softFocus', 0, 1.5, 0.05).name('Soft focus (px)');
   post.add(settings, 'grainStrength', 0, 0.06, 0.001).name('Film grain');
   post.close();
   const view = gui.addFolder('Renderer');

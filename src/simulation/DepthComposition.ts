@@ -15,9 +15,9 @@ export interface PopulationConfig {
 /** Fresh settings per system; these counts describe capacity, not visible count. */
 export function createPopulationConfigs(gpu: boolean): PopulationConfig[] {
   return [
-    { id: 'foreground', count: gpu ? 20 : 5, depth: { min: 4, max: 10 }, scale: { min: 0.28, max: 0.42 }, geometryTier: 'high', materialTier: 'high' },
-    { id: 'midground', count: gpu ? 170 : 35, depth: { min: -6, max: 4 }, scale: { min: 0.23, max: 0.39 }, geometryTier: 'medium', materialTier: 'medium' },
-    { id: 'background', count: gpu ? 310 : 60, depth: { min: -35, max: -6 }, scale: { min: 0.20, max: 0.34 }, geometryTier: 'low', materialTier: 'low' },
+    { id: 'foreground', count: gpu ? 50 : 10, depth: { min: 4, max: 10 }, scale: { min: 0.28, max: 0.42 }, geometryTier: 'high', materialTier: 'high' },
+    { id: 'midground', count: gpu ? 200 : 40, depth: { min: -6, max: 4 }, scale: { min: 0.23, max: 0.39 }, geometryTier: 'medium', materialTier: 'medium' },
+    { id: 'background', count: gpu ? 250 : 50, depth: { min: -35, max: -6 }, scale: { min: 0.20, max: 0.34 }, geometryTier: 'low', materialTier: 'low' },
   ];
 }
 

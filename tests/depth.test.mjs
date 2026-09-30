@@ -12,7 +12,7 @@ const { createPopulationConfigs, createPopulationBounds, halfWidthAtDepth, halfH
 test('population defaults fit backend pools and do not share mutable settings', () => {
   for (const gpu of [true, false]) {
     const populations = createPopulationConfigs(gpu);
-    assert.deepEqual(populations.map(p => p.count), gpu ? [20, 170, 310] : [5, 35, 60]);
+    assert.deepEqual(populations.map(p => p.count), gpu ? [50, 200, 250] : [10, 40, 50]);
     assert.equal(populations.reduce((sum, p) => sum + p.count, 0), gpu ? 500 : 100);
   }
   const a = createPopulationConfigs(true), b = createPopulationConfigs(true);
