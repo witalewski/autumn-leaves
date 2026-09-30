@@ -122,3 +122,24 @@ test('leaf forms have distinct bending, silhouettes and normals at every LOD', (
     shapes.forEach(g => g.dispose());
   }
 });
+
+
+test('all seeded forms stay shallow and do not fold back along the blade', () => {
+  for (const tier of ['high', 'medium', 'low']) {
+    for (let form = 0; form < leafForms.length; form++) {
+      for (const seed of [0, 1, 42, 2409, 65535, 4294967295]) {
+        const geometry = createGeometry(tier, form, seed);
+        geometry.computeBoundingBox();
+        const size = geometry.boundingBox.getSize(new Vector3());
+        // Include the largest existing per-instance depth scale (1.5x).
+        assert.ok(size.z * 1.5 < size.y * 0.18, `${tier}/${form}/${seed}: excessive bending ${size.z} / ${size.y}`);
+        const positions = geometry.attributes.position;
+        const bladeRows = (positions.count - 6) / 3;
+        for (let row = 1; row < bladeRows; row++) {
+          assert.ok(positions.getY(row * 3 + 1) > positions.getY((row - 1) * 3 + 1));
+        }
+        geometry.dispose();
+      }
+    }
+  }
+});
