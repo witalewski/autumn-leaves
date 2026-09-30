@@ -57,7 +57,7 @@ async function start() {
   const sun = new DirectionalLight(sunColor, settings.sunIntensity);
   const ambient = new HemisphereLight('#c1d9ef', '#72604c', settings.skyIntensity);
   const leaf = createLeaf(sunDirection, sunColor);
-  const sky = createSky(sunDirection, sunColor);
+  const sky = createSky(sunDirection, sunColor, settings.seed);
   const gpu = capabilities.backend === 'WebGPU';
   settings.leafCount = import.meta.env.DEV ? (gpu ? 500 : 100) : motionDefaults.leafCount;
   const foliage = createLeafSystem(leaf, settings, renderer, gpu);
@@ -156,6 +156,7 @@ async function start() {
     lastTime = now;
     try {
       foliage.update(dt, motion.matches);
+      sky.update(dt, motion.matches, settings);
       post.render(motion.matches, dt);
     } catch (error) { fail(error); return; }
     if (failed) return;
@@ -203,7 +204,7 @@ async function start() {
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => foliage.reset(), foliage);
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { foliage.reset(); sky.reset(settings.seed); }, foliage);
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;
