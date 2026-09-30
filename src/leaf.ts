@@ -119,13 +119,14 @@ export const leafForms = [
   { name: 'open oval', width: 1.12, bend: 0.06, cup: 0.08, twist: 0.12, hook: 0.02, lobes: 0 },
   { name: 'cupped beech', width: 1, bend: 0.19, cup: 0.65, twist: -0.3, hook: 0.08, lobes: 0 },
   { name: 'curled lance', width: 0.72, bend: 0.38, cup: -0.2, twist: 0.6, hook: 0.32, lobes: 0 },
-  { name: 'twisted blade', width: 0.9, bend: -0.16, cup: 0.3, twist: -1.35, hook: 0.12, lobes: 0 },
+  { name: 'flat blade', width: 1.02, bend: 0.015, cup: 0.02, twist: 0.015, hook: 0.008, lobes: 0 },
   { name: 'wavy broadleaf', width: 1.22, bend: 0.15, cup: -0.4, twist: 0.7, hook: 0.05, lobes: 0.18 },
 ] as const;
 
 export function createGeometry(tier: DetailTier = 'high', formIndex = 0, seed = 2409) {
   const form = leafForms[formIndex];
-  const variation = hash(seed, formIndex) * 2 - 1;
+  // Keep the flat form nearly planar even at the extremes of seeded variation.
+  const variation = (hash(seed, formIndex) * 2 - 1) * (form.name === 'flat blade' ? 0.12 : 1);
   const bend = form.bend + variation * 0.06;
   const twist = form.twist + variation * 0.25;
   function surfacePoint(x: number, t: number) {
