@@ -4,12 +4,14 @@ import { createLeaf } from './leaf';
 import { createRenderer } from './renderer';
 import { createSky } from './sky';
 import { createLeafSystem } from './LeafSystem';
+import { createAtmosphere } from './scene/Atmosphere';
 import { motionDefaults } from './simulation/MotionSimulation';
 
 export const settings = {
   sunAzimuth: 15, sunElevation: 10, sunIntensity: 3.2, sunColor: '#fff0d0', skyIntensity: 1.3,
   transmission: 1.15, roughness: 0.85, normalStrength: 0.65, leafColor: '#ffffff',
   haze: 0.45, clouds: 0.32, exposure: 1,
+  depthHazeStart: 18, depthHazeFalloff: 0.035, depthHazeStrength: 0.65,
   ...motionDefaults,
   renderScale: 1, dprCap: 1.75,
 };
@@ -45,6 +47,8 @@ async function start() {
   host.dataset.backend = capabilities.backend;
 
   const scene = new Scene();
+  const atmosphere = createAtmosphere();
+  scene.fogNode = atmosphere.node;
   const camera = new PerspectiveCamera(40, 1, 0.1, 200);
   const sunDirection = new Vector3();
   const sunColor = new Color(settings.sunColor);
@@ -53,7 +57,7 @@ async function start() {
   const leaf = createLeaf(sunDirection, sunColor);
   const sky = createSky(sunDirection, sunColor);
   const gpu = capabilities.backend === 'WebGPU';
-  settings.leafCount = import.meta.env.DEV ? (gpu ? 500 : 100) : motionDefaults.leafCount;
+  settings.leafCount = gpu ? 500 : 100;
   const foliage = createLeafSystem(leaf, settings, renderer, gpu);
   scene.add(...foliage.meshes);
   scene.add(sky.mesh, sun, ambient);
@@ -92,11 +96,14 @@ async function start() {
     leaf.material.color.set(settings.leafColor);
     leaf.material.roughness = settings.roughness;
     leaf.material.normalScale.setScalar(settings.normalStrength);
-    for (const variant of leaf.palette) {
+    for (const variant of Object.values(leaf.palettes).flat()) {
       variant.material.color.copy(leaf.material.color).multiply(variant.tint);
       variant.material.roughness = settings.roughness;
       variant.material.normalScale.setScalar(settings.normalStrength);
     }
+    atmosphere.start.value = settings.depthHazeStart;
+    atmosphere.falloff.value = settings.depthHazeFalloff;
+    atmosphere.strength.value = settings.depthHazeStrength;
     sky.haze.value = settings.haze;
     sky.clouds.value = settings.clouds;
     sky.sunIntensity.value = settings.sunIntensity;
@@ -189,7 +196,7 @@ async function start() {
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => foliage.reset(), foliage.capacity);
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => foliage.reset(), foliage);
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;

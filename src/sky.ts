@@ -26,7 +26,7 @@ export function createSky(sunDirection: Vector3, sunColor: Color) {
     .mul(float(1).sub(smoothstep(0.35, 0.8, ray.y)));
   const cloudColor = mix(uniform(new Color('#ccd1d0')), sun.mul(1.1), alignment.pow(12));
   const output = mix(gradient, cloudColor, cloudMask).add(sun.mul(glow.add(halo).add(disc)).mul(sunIntensity.div(3.2)));
-  const material = new MeshBasicNodeMaterial({ side: BackSide, depthWrite: false });
+  const material = new MeshBasicNodeMaterial({ side: BackSide, depthWrite: false, fog: false });
   material.fragmentNode = vec4(output, 1);
   const mesh = new Mesh(new SphereGeometry(100, 32, 16), material);
   mesh.renderOrder = -1;

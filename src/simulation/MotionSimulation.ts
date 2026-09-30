@@ -72,9 +72,9 @@ export class MotionSimulation {
       });
       if (selected >= 0) assigned[selected]++;
       return {
-      population: selected < 0 ? null : populations[selected].id,
-      position: new Vector3(), velocity: new Vector3(), rotation: new Quaternion(),
-      angularVelocity: new Vector3(), mass: 1, drag: 1, lift: 1, phase: 0, frequency: 1,
+        population: selected < 0 ? null : populations[selected].id,
+        position: new Vector3(), velocity: new Vector3(), rotation: new Quaternion(),
+        angularVelocity: new Vector3(), mass: 1, drag: 1, lift: 1, phase: 0, frequency: 1,
       };
     });
     this.reset();

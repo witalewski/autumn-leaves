@@ -1,6 +1,6 @@
 # Autumn — a study of motion
 
-Phases 1–4 of `specs.md`: GPU leaf simulation rendered in five instanced palette batches. Production defaults to 32 visible leaves on both backends, matching the phase 3 demo. Development defaults to 500 GPU-simulated leaves on WebGPU or 100 CPU-simulated leaves on WebGL2 for performance checks. The development count control ranges from 20 to the backend’s capacity.
+Phases 1–5 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Both development and production now use 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
 
 ## Run
 
@@ -14,7 +14,7 @@ npm run dev
 Open the local URL printed by Vite (normally http://127.0.0.1:5173).
 
 ```sh
-npm test          # CPU simulation regression tests
+npm test          # Simulation, composition, LOD, and resource regression tests
 npm run check     # TypeScript
 npm run build     # TypeScript + production bundle
 npm run preview   # Serve the built application
@@ -39,27 +39,29 @@ This follows [Vite's relative-base support](https://vite.dev/guide/build#relativ
 ## Inspect the motion
 
 - Space or a canvas tap/click pauses/resumes the simulation. The hint reads “Tap” for a coarse primary pointer (touch devices) and “Space” for desktop pointers; both inputs always work.
-- The development panel exposes wind direction/speed, gust strength, turbulence, gravity, drag, lift, tumble, flutter, angular damping, and leaf count, alongside the existing lighting/material controls.
+- The development panel exposes motion, lighting, and material controls. **Depth composition** adds per-population visibility/counts, world-space depth and scale ranges, plus haze start/falloff/strength. Finishing a depth/scale edit restarts the same seed; count and visibility edits do not. Counts are limited by each fixed pool and the global leaf-count limit. Reducing the global count retains a mixture of depth groups.
 - **Restart same seed** restores the initial population without changing controls. **Reset study** restores default controls and restarts. **Export parameters** downloads the current configuration as JSON.
 - The default seed is 2409. Append `?seed=42` for another repeatable population. Repeatability assumes the same viewport, controls, and simulation time.
 - Compare high/low drag for broadside braking, lift for gliding, tumble/flutter for orientation changes, and angular damping for calmer intervals. Gusts affect both translation and aerodynamic torque through relative airflow.
-- The development overlay reports the backend, FPS, mean frame interval, active leaf count, total draw/triangle counts, render scale, and DPR. These are CPU frame intervals, not GPU timings. Controls and statistics are omitted from production builds.
+- The development overlay reports the backend, FPS, mean frame interval, visible instance counts per population, total draw/triangle counts, render scale, and DPR. These are CPU frame intervals, not GPU timings. Controls and statistics are omitted from production builds.
 
 ## Implementation
 
 - `main.ts`: scene, lighting, fixed camera, input, sizing, and lifecycle.
-- `LeafSystem.ts`: five instanced palette batches, seeded initialization, backend selection, timing, and resource ownership.
+- `LeafSystem.ts`: fifteen population/palette batches, stable instance-slot mapping, seeded scales, backend selection, timing, and resource ownership.
 - `simulation/GpuMotion.ts`: TSL compute kernel updating GPU-resident position, velocity, quaternion, angular velocity, and instance-matrix buffers. Mass, drag, lift, flutter phase/frequency, and visual scale live in storage buffers too.
 - `simulation/MotionSimulation.ts`: seeded fixed-size state pool, spatial/time-varying wind, and CPU integration at 120 Hz. Gravity, orientation-dependent drag, perpendicular lift, aerodynamic alignment, asymmetric tumble, flutter, and angular damping drive velocity and quaternion orientation. Parameters vary per leaf. Scratch vectors are reused.
 - `renderer.ts`: WebGPURenderer initialization, backend detection, and filmic tone mapping.
 - `sky.ts`: TSL gradient, atmospheric sun glow, sun disc, and procedural cloud wisps.
-- `leaf.ts`: shared curved geometry and a five-color double-sided material palette with warm, thickness-modulated backlighting.
+- `leaf.ts`: three curved geometry tiers and five autumn tints per material tier. Foreground uses normal/roughness maps and full backlighting; midground omits the normal map; background also omits the packed surface map and uses a simpler transmission term. All tiers share textures, alpha cutouts, and double-sided lighting.
+- `simulation/DepthComposition.ts`: population settings and perspective-aware depth bounds.
+- `scene/Atmosphere.ts`: depth-dependent exponential haze matching the sky gradient, applied in linear color space before tone mapping without an extra render pass.
 - `debug.ts`: development controls and statistics.
 - `style.css`: canvas and captions.
 
-On WebGPU, CPU work per frame consists of advancing fixed-step time and submitting five compute kernels per substep. There are no per-leaf CPU updates, transform uploads, or readbacks in that path. CPU initialization/uploads happen only at startup or explicit reset/seed changes. Matrices generated by compute feed Three.js instancing directly, including normal transformations for nonuniform scale and normal mapping. The fixed 500-slot GPU pool stays simulated when the visible count is reduced. WebGL2 uses the CPU reference at a smaller capacity and updates instance matrices.
+On WebGPU, CPU work per frame consists of advancing fixed-step time and submitting fifteen compute kernels per substep. There are no per-leaf CPU updates, transform uploads, or readbacks in that path. CPU initialization/uploads happen only at startup or explicit reset/seed changes. Matrices generated by compute feed Three.js instancing directly, including normal transformations for nonuniform scale and normal mapping. The fixed 500-slot GPU pool stays simulated when the visible count is reduced. WebGL2 uses the CPU reference at a smaller capacity and updates instance matrices.
 
-Leaves recycle above or upstream of the frame. A weak depth-restoring force keeps this prototype in one shallow population. Velocity/torque limits keep exploratory control settings stable. This is an intentionally approximate visual model, not a calibrated fluid simulation.
+Leaves recycle above or upstream of the frame at their own depth. Each leaf keeps its population, palette, and visual scale across recycling. A population-specific spring and depth-boundary guard retain the assigned band without respawning leaves visibly along Z. CPU/GPU integration uses the same depth rules, while respawn random sequences intentionally differ. Velocity/torque limits keep exploratory control settings stable. This is an intentionally approximate visual model, not a calibrated fluid simulation.
 
 The 768×768 albedo/alpha, normal, and packed thickness/roughness maps are generated once at startup. They contain a serrated silhouette, branching veins, mottled autumn pigment, and fine surface variation. Albedo uses sRGB; data maps remain linear. The mesh closely follows the silhouette, uses alpha testing/MSAA coverage, and has no alpha blending. These are procedural **placeholder assets**, not scanned foliage. There are no external texture downloads.
 
@@ -67,22 +69,26 @@ The renderer prefers WebGPU and lets Three.js fall back to WebGL2 with the same 
 
 Effective DPR is capped at 1.75, with a separate render-scale control. The single animation loop stops while hidden and clamps elapsed time on resume. Reduced motion runs simulation time at 8% speed, slowing movement, rotation, gusts, and flutter together; the camera stays fixed. HMR cleans up resources, controls, listeners, and the frame loop.
 
-## Scope boundary
+## Phase 5 composition
 
-Phase 4 adds GPU state/compute and instanced rendering. The phase 3 CPU model remains the reference and fallback. There are no depth populations, LOD, adaptive quality, new post-processing, or asset-pipeline changes. A follow-up adds seeded visual variety: five autumn tints (gold, amber, copper, russet, and olive), different sizes, narrower/broader proportions, and varying curvature. The palette shares the existing texture maps; these are variations of the same leaf silhouette, not new botanical species. Appearance stays stable during flight and recycling, and changing the seed regenerates it without altering the motion random sequence. The existing sky/materials are retained.
+| Population | WebGPU / WebGL2 capacity | World Z range | Base scale | Triangles per leaf |
+| --- | --- | --- | --- | --- |
+| Foreground | 20 / 5 | 4 to 10 | 0.28–0.42 | 44 |
+| Midground | 170 / 35 | -6 to 4 | 0.23–0.39 | 28 |
+| Background | 310 / 60 | -35 to -6 | 0.20–0.34 | 20 |
+
+The fixed camera looks along -Z. Population bounds derive from camera position, FOV, aspect, zoom, and clipping planes; spawn/recycle extents follow the frustum at each leaf's Z. Bounds update on resize without resetting motion. Offscreen margins accommodate leaf size. LOD is fixed by population to avoid switching artifacts, and seeded proportion/curvature variation still applies within each scale range.
+
+All fifteen foliage batches are conservatively drawn because GPU transforms have no CPU bounding sphere. Full WebGPU foliage costs 11,840 triangles versus 22,000 with the former geometry at 500 leaves (about 46% fewer). Total scene draws rise from 7 to 17; the local browser check reports 12,801 total scene triangles. WebGL2 uses the same composition rules with a smaller CPU pool and 3,361 total scene triangles.
+
+The 32-leaf production default has been replaced by the backend capacities above so production shows the depth composition. The development controls can reduce visible counts without rebuilding pools. Adaptive quality, cinematic post-processing, compressed assets, new botanical silhouettes, and final artistic tuning remain later phases.
 
 ## Verification
 
-### Phase 5 foundation (steps 1–2)
-
-`simulation/DepthComposition.ts` defines independent foreground/midground/background settings: pool counts of 20/170/310 on WebGPU and 5/35/60 on WebGL2, world-space depth and scale ranges, and geometry/material detail tiers. Counts sum to the existing backend capacities; they do not change the current visible-count defaults. Depth ranges are world-space Z coordinates for the fixed camera looking along -Z: foreground 4 to 10, midground -6 to 4, background -35 to -6. These are initial tuning values.
-
-`LeafSystem.setCameraBounds` computes each population's volume on startup and resize using the camera position, vertical FOV, aspect, zoom, and clipping planes. Bounds include a one-unit offscreen margin and per-distance extents for evaluating the frustum at any leaf depth. Resizing does not reset simulation state. Empty viewports are skipped.
-
-This is configuration and bounds infrastructure only: population assignment, spawning/recycling, and GPU integration follow in steps 3–4; render batching, scale application, and LOD follow later. The running simulation retains its phase 4 shallow bounds and appearance in the meantime. `tests/depth.test.mjs` checks camera projection across aspect ratios and zoom, clipping, independent settings, and compatibility with the existing shallow bounds.
+`npm test` also checks population capacity/assignment, frustum projection at landscape/portrait aspect ratios and zoom, clipping, seeded depth replay, offscreen recycling in both wind directions, finite depth state through two simulated minutes of extreme controls, geometry LOD, real CPU batch transforms/count controls, resize/pause behavior, and geometry/material disposal.
 
 `npm test` checks seeded replay, render-cadence independence, pause/resume timing, reduced motion, recycling without replacing pool objects, finite state and unit quaternions over two simulated minutes at extreme controls, gravity/drag/damping response, and wind continuity. `npm run build` performs strict TypeScript checking and builds the production bundle.
 
-For GPU integration checks, run the dev server and open `/tests/gpu.html` in a WebGPU browser. This development-only harness compares 500 initial matrices and 120 integration steps against the CPU reference, checks reset replay and recycling, and exercises extreme controls for five simulated seconds. Readback exists only in that test. The test page is not included in the production build. GPU and CPU respawn random sequences intentionally differ, and different GPUs are not guaranteed bit-identical floating-point results.
+For GPU integration checks, run the dev server and open `/tests/gpu.html` in a WebGPU browser. This development-only harness compares 500 initial matrices and 120 integration steps against the CPU reference, checks reset replay and recycling, and exercises extreme controls for five simulated seconds. It also checks all three depth populations against the CPU reference, verifies offscreen recycling into the correct depth band, and stresses each GPU population after a portrait resize. Readback exists only in that test. The test page is not included in the production build. GPU and CPU respawn random sequences intentionally differ, and different GPUs are not guaranteed bit-identical floating-point results.
 
-The phase 4 scene has been checked locally in WebGPU and forced WebGL2. The local WebGPU run reports seven total scene draw calls at 500 leaves (five foliage batches), with no shader errors. Motion remains subject to artistic review; these checks do not establish performance on physical mobile devices.
+The phase 5 scene has been checked locally in WebGPU and forced WebGL2, including a portrait viewport. Both rendered around 60 FPS in the local browser with no shader warnings/errors; these are CPU frame intervals, not GPU timings. The GPU regression harness passed all depth checks (maximum CPU/GPU position difference below 0.00003 over 120 steps for non-recycled depth leaves). These checks do not establish performance on physical mobile devices; adaptive quality and representative-device profiling remain phase 7 work.

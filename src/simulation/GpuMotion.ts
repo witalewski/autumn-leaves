@@ -1,12 +1,18 @@
-import { StorageInstancedBufferAttribute, Vector2 } from 'three/webgpu';
+import { StorageInstancedBufferAttribute, Vector2, Vector4 } from 'three/webgpu';
 import { Fn, If, abs, cos, cross, dot, exp, float, instanceIndex, instancedArray, length, mat4, max, min, normalize, sin, storage, uniform, vec3, vec4 } from 'three/tsl';
+import type { PopulationBounds } from './DepthComposition';
 import type { MotionConfig, LeafState } from './MotionSimulation';
 
-// Five independent batches receive the same global parameters. Buffers are uploaded only on reset;
+// Population/palette batches receive the same global parameters. Buffers are uploaded only on reset;
 // compute writes both aerodynamic state and the matrices read by instanced rendering.
 export function createGpuMotion(capacity: number) {
   const time = uniform(0), dt = uniform(0);
   const bounds = uniform(new Vector2(10, 6));
+  const depthEnabled = uniform(0);
+  const depth = uniform(new Vector2(-2, 0));
+  // Camera Z, horizontal/vertical extent per distance, offscreen margin.
+  const projection = uniform(new Vector4(16, 1, 1, 1));
+  const center = uniform(new Vector2());
   const wind = uniform(new Vector2(1.7, 15 * Math.PI / 180));
   const gust = uniform(1.8), turbulence = uniform(0.65), gravity = uniform(1.6);
   const drag = uniform(1.15), lift = uniform(0.65), tumble = uniform(1.1);
@@ -47,9 +53,15 @@ export function createGpuMotion(capacity: number) {
     v.addAssign(air.mul(braking).mul(dt));
     v.addAssign(normal.sub(flow.mul(incidence)).mul(min(speed.mul(speed), 36)).mul(incidence).mul(lift).mul(leafLift).div(mass).mul(dt));
     v.y.subAssign(gravity.mul(dt));
-    v.z.addAssign(p.z.add(1).mul(-0.8).sub(v.z.mul(0.6)).mul(dt));
+    const centerZ = depth.x.add(depth.y).mul(0.5);
+    const halfDepth = depth.y.sub(depth.x).mul(0.5);
+    v.z.addAssign(p.z.sub(centerZ).div(halfDepth).mul(-0.8).sub(v.z.mul(0.6)).mul(dt));
     v.mulAssign(min(float(1), float(9).div(max(length(v), 0.0001))));
     p.addAssign(v.mul(dt));
+    If(depthEnabled.greaterThan(0), () => {
+      If(p.z.lessThan(depth.x), () => { p.z.assign(depth.x); v.z.assign(max(v.z, 0)); });
+      If(p.z.greaterThan(depth.y), () => { p.z.assign(depth.y); v.z.assign(min(v.z, 0)); });
+    });
     const torque = cross(normal, flow).mul(incidence).mul(speed).mul(1.8).toVar();
     torque.addAssign(vec3(
       sin(phase.add(time.mul(0.73))).mul(0.35),
@@ -64,17 +76,25 @@ export function createGpuMotion(capacity: number) {
     const halfAngle = spin.mul(dt).mul(0.5);
     const dq = vec4(omega.div(max(spin, 0.0001)).mul(sin(halfAngle)), cos(halfAngle)).toVar();
     q.assign(normalize(vec4(dq.xyz.mul(q.w).add(q.xyz.mul(dq.w)).add(cross(dq.xyz, q.xyz)), dq.w.mul(q.w).sub(dot(dq.xyz, q.xyz)))));
-    If(abs(p.x).greaterThan(bounds.x.add(1)).or(abs(p.y).greaterThan(bounds.y.add(1))), () => {
+    const distance = projection.x.sub(p.z);
+    const extentX = depthEnabled.greaterThan(0).select(distance.mul(projection.y).add(projection.w), bounds.x);
+    const extentY = depthEnabled.greaterThan(0).select(distance.mul(projection.z).add(projection.w), bounds.y);
+    If(abs(p.x.sub(center.x)).greaterThan(extentX.add(1)).or(abs(p.y.sub(center.y)).greaterThan(extentY.add(1))), () => {
       // Deterministic per-leaf respawn sequence lives in the fourth position channel.
       const cycle = position.element(instanceIndex).w.add(1).toVar();
       position.element(instanceIndex).w.assign(cycle);
       const r = sin(phase.mul(17.17).add(cycle.mul(91.7))).mul(43758.5453).fract().toVar();
       const r2 = sin(phase.mul(31.31).add(cycle.mul(47.3))).mul(15731.743).fract().toVar();
-      p.assign(vec3(r.mul(2).sub(1).mul(bounds.x), bounds.y, r2.mul(-2)));
+      const spawnZ = depthEnabled.greaterThan(0).select(depth.x.add(r2.mul(depth.y.sub(depth.x))), r2.mul(-2));
+      const spawnDistance = projection.x.sub(spawnZ);
+      const spawnX = depthEnabled.greaterThan(0).select(spawnDistance.mul(projection.y).add(projection.w), bounds.x);
+      const spawnY = depthEnabled.greaterThan(0).select(spawnDistance.mul(projection.z).add(projection.w), bounds.y);
+      p.assign(vec3(r.mul(2).sub(1).mul(spawnX), spawnY, spawnZ));
       If(r2.greaterThan(0.45), () => {
-        p.x.assign(cos(wind.y).greaterThanEqual(0).select(bounds.x.negate(), bounds.x));
-        p.y.assign(r.mul(2).sub(1).mul(bounds.y));
+        p.x.assign(cos(wind.y).greaterThanEqual(0).select(spawnX.negate(), spawnX));
+        p.y.assign(r.mul(2).sub(1).mul(spawnY));
       });
+      p.xy.addAssign(center);
       v.assign(vec3(cos(wind.y).mul(wind.x).mul(0.6), sin(wind.y).mul(wind.x).mul(0.6).sub(0.4), 0));
       omega.assign(vec3(r.sub(0.5), r2.sub(0.5), 0.2));
     });
@@ -98,8 +118,12 @@ export function createGpuMotion(capacity: number) {
   return {
     matrices, kernel,
     buffers: [position, velocity, rotation, angular, parameters, scales],
-    configure(config: MotionConfig, halfWidth: number, halfHeight: number) {
+    configure(config: MotionConfig, halfWidth: number, halfHeight: number, population?: PopulationBounds) {
       bounds.value.set(halfWidth, halfHeight);
+      depthEnabled.value = population ? 1 : 0;
+      depth.value.set(population?.minZ ?? -2, population?.maxZ ?? 0);
+      center.value.set(population?.centerX ?? 0, population?.centerY ?? 0);
+      if (population) projection.value.set(population.cameraZ, population.halfWidthPerDistance, population.halfHeightPerDistance, population.margin);
       wind.value.set(config.windSpeed, config.windDirection * Math.PI / 180);
       gust.value = config.gustStrength; turbulence.value = config.turbulence;
       gravity.value = config.gravity; drag.value = config.drag; lift.value = config.lift;

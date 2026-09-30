@@ -8,49 +8,69 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
   const populations = createPopulationConfigs(gpu);
   const populationBounds = new Map<PopulationId, PopulationBounds>();
   const capacity = populations.reduce((total, population) => total + population.count, 0);
-  const perBatch = capacity / leaf.palette.length;
-  // CPU state exists only to seed GPU buffers on reset; it is never stepped on WebGPU.
-  // GPU retains phase 4 seeding until step 4 ports population rules to compute.
-  const initial = new MotionSimulation({ ...config, leafCount: capacity }, capacity, gpu ? [] : populations);
+  // CPU state seeds GPU buffers only on reset; it is never stepped on WebGPU.
+  const initial = new MotionSimulation({ ...config, leafCount: capacity }, capacity, populations);
   const scales = Array.from({ length: capacity }, () => new Vector3());
-  const compute = gpu ? leaf.palette.map(() => createGpuMotion(perBatch)) : [];
-  const meshes = leaf.palette.map((variant, index) => {
-    const geometry = leaf.mesh.geometry.clone();
-    const mesh = new InstancedMesh(geometry, variant.material, perBatch);
-    // CPU bounds cannot describe GPU-updated transforms. This one shallow volume
-    // is intentionally always drawn; phase 5 introduces composition/LOD later.
+  const controls = populations.map(population => ({ ...population, depth: { ...population.depth }, scale: { ...population.scale }, visible: true, activeCount: population.count }));
+  const batches = populations.flatMap((population, populationIndex) => leaf.palettes[population.materialTier].map((variant, paletteIndex) => {
+    const count = Math.ceil((population.count - paletteIndex) / leaf.palette.length);
+    const compute = gpu ? createGpuMotion(count) : undefined;
+    const geometry = leaf.geometries[population.geometryTier].clone();
+    const mesh = new InstancedMesh(geometry, variant.material, count);
+    // GPU transforms have no CPU bounding sphere. Fifteen conservative batches
+    // remain drawn; depth LOD bounds their cost without per-instance readback.
     mesh.frustumCulled = false;
-    if (gpu) {
-      mesh.instanceMatrix = compute[index].matrices;
-      // Give geometry ownership of storage attributes for standard disposal.
-      compute[index].buffers.forEach((buffer, i) => geometry.setAttribute(`state${i}`, buffer.value));
+    if (compute) {
+      mesh.instanceMatrix = compute.matrices;
+      compute.buffers.forEach((buffer, i) => geometry.setAttribute(`state${i}`, buffer.value));
       geometry.setAttribute('stateMatrices', mesh.instanceMatrix);
     } else mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    return mesh;
+    return { mesh, compute, populationIndex };
+  }));
+  const meshes = batches.map(batch => batch.mesh);
+  const kernels = batches.flatMap(batch => batch.compute ? [batch.compute.kernel] : []);
+  const cursors = populations.map(() => 0);
+  const slots = initial.leaves.map(state => {
+    const populationIndex = populations.findIndex(p => p.id === state.population);
+    const local = cursors[populationIndex]++;
+    return { populationIndex, local, batchIndex: populationIndex * leaf.palette.length + local % leaf.palette.length, index: Math.floor(local / leaf.palette.length) };
   });
-  const kernels = compute.map((batch) => batch.kernel);
   const matrix = new Matrix4();
-  let halfWidth = 10, halfHeight = 6, time = 0, accumulator = 0;
+  let camera: DepthCamera | undefined;
+  let time = 0, accumulator = 0;
   function configure() {
     config.leafCount = Math.max(20, Math.min(capacity, Math.round(config.leafCount)));
-    for (let b = 0; b < meshes.length; b++) {
-      meshes[b].count = Math.max(0, Math.ceil((config.leafCount - b) / meshes.length));
-      compute[b]?.configure(config, halfWidth, halfHeight);
+    for (const batch of batches) {
+      batch.mesh.count = 0;
+      const control = controls[batch.populationIndex];
+      control.activeCount = Math.max(0, Math.min(control.count, Math.round(control.activeCount)));
+      batch.mesh.visible = control.visible;
+      batch.compute?.configure(config, 10, 6, populationBounds.get(control.id));
+    }
+    for (let i = 0; i < config.leafCount; i++) {
+      const slot = slots[i];
+      if (slot.local < controls[slot.populationIndex].activeCount) meshes[slot.batchIndex].count++;
     }
     Object.assign(initial.config, config);
   }
+  function setCameraBounds(next: DepthCamera) {
+    camera = next;
+    for (const control of controls) populationBounds.set(control.id, createPopulationBounds(next, control.depth, Math.max(1, control.scale.max * 2.5)));
+    initial.setPopulationBounds(populationBounds);
+    configure();
+  }
   function syncCpu() {
     for (let i = 0; i < config.leafCount; i++) {
-      const state = initial.leaves[i];
+      const state = initial.leaves[i], slot = slots[i];
       matrix.compose(state.position, state.rotation, scales[i]);
-      meshes[i % meshes.length].setMatrixAt(Math.floor(i / meshes.length), matrix);
+      meshes[slot.batchIndex].setMatrixAt(slot.index, matrix);
     }
     for (const mesh of meshes) mesh.instanceMatrix.needsUpdate = true;
   }
   function reset() {
     time = accumulator = 0;
-    configure();
-    initial.setBounds(halfWidth, halfHeight);
+    if (camera) setCameraBounds(camera);
+    else configure();
     initial.reset();
     let seed = (config.seed ^ 0x9e3779b9) >>> 0;
     const random = () => {
@@ -58,54 +78,36 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
       return seed / 4294967296;
     };
     for (let i = 0; i < capacity; i++) {
-      const size = 0.23 + random() * 0.16;
+      const slot = slots[i], range = controls[slot.populationIndex].scale;
+      const size = range.min + random() * (range.max - range.min);
       scales[i].set(size * (0.72 + random() * 0.56), size, size * (0.65 + random() * 0.85));
-      if (gpu) compute[i % meshes.length].seed(Math.floor(i / meshes.length), initial.leaves[i], scales[i].toArray());
+      batches[slot.batchIndex].compute?.seed(slot.index, initial.leaves[i], scales[i].toArray());
     }
     if (gpu) {
-      for (const batch of compute) { batch.upload(); batch.setTime(0, 0); }
+      for (const batch of batches) { batch.compute!.upload(); batch.compute!.setTime(0, 0); }
       renderer.compute(kernels);
     } else syncCpu();
   }
   return {
-    meshes, capacity, populations, populationBounds,
-    configure,
-    setCameraBounds(camera: DepthCamera) {
-      for (const population of populations) {
-        populationBounds.set(population.id, createPopulationBounds(camera, population.depth));
-      }
-      if (!gpu) initial.setPopulationBounds(populationBounds);
-      // Transitional phase 4 bounds for GPU seeding until step 4.
-      const legacy = createPopulationBounds(camera, { min: -5, max: 0 });
-      halfWidth = legacy.halfWidth;
-      halfHeight = legacy.halfHeight;
-      initial.setBounds(halfWidth, halfHeight);
-      configure();
+    meshes, capacity, populations, populationBounds, controls,
+    configure, setCameraBounds, reset,
+    getPopulationCounts() {
+      return controls.map((control, index) => ({ id: control.id, count: control.visible ? batches.filter(b => b.populationIndex === index).reduce((sum, b) => sum + b.mesh.count, 0) : 0 }));
     },
-    setBounds(width: number, height: number) {
-      halfWidth = width; halfHeight = height;
-      initial.setBounds(width, height);
-      configure();
-    },
-    reset,
     update(delta: number, reducedMotion: boolean) {
-      if (!gpu) {
-        initial.update(delta, reducedMotion);
-        syncCpu();
-        return;
-      }
+      if (!gpu) { initial.update(delta, reducedMotion); syncCpu(); return; }
       if (!config.running || !Number.isFinite(delta) || delta <= 0) return;
       accumulator += Math.min(delta, 0.05) * (reducedMotion ? 0.08 : 1);
       while (accumulator + 1e-10 >= 1 / 120) {
         time += 1 / 120;
-        for (const batch of compute) batch.setTime(time, 1 / 120);
+        for (const batch of batches) batch.compute!.setTime(time, 1 / 120);
         renderer.compute(kernels);
         accumulator -= 1 / 120;
       }
     },
     dispose() {
-      compute.forEach((batch) => batch.dispose());
-      meshes.forEach((mesh) => { mesh.dispose(); mesh.geometry.dispose(); });
+      batches.forEach(batch => batch.compute?.dispose());
+      meshes.forEach(mesh => { mesh.dispose(); mesh.geometry.dispose(); });
     },
   };
 }

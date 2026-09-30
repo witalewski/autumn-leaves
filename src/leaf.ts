@@ -3,6 +3,7 @@ import {
   LinearMipmapLinearFilter, Mesh, MeshStandardNodeMaterial, RGBAFormat,
   SRGBColorSpace, Vector2, Vector3,
 } from 'three/webgpu';
+import type { DetailTier } from './simulation/DepthComposition';
 import { cameraPosition, dot, mix, normalWorld, positionWorld, pow, texture, uniform } from 'three/tsl';
 
 // The texture and mesh share this silhouette. Alpha only trims small teeth at the edge.
@@ -98,11 +99,12 @@ function createTextures() {
   return { color, normal: map(normals), surface: map(surface) };
 }
 
-function createGeometry() {
+export function createGeometry(tier: DetailTier = 'high') {
+  const strips = tier === 'high' ? 10 : tier === 'medium' ? 6 : 4;
   const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
-  // Ten strips with a central fold: 40 blade triangles, plus a four-triangle petiole.
-  for (let row = 0; row <= 10; row++) {
-    const t = 0.105 + row / 10 * 0.895;
+  // Shared UVs and central fold; reduce longitudinal strips with distance.
+  for (let row = 0; row <= strips; row++) {
+    const t = 0.105 + row / strips * 0.895;
     const width = halfWidth(t) * 1.035 + 0.002;
     for (let column = -1; column <= 1; column++) {
       const x = column * width;
@@ -112,7 +114,7 @@ function createGeometry() {
       uvs.push(x + 0.5, t);
     }
   }
-  for (let row = 0; row < 10; row++) {
+  for (let row = 0; row < strips; row++) {
     for (let col = 0; col < 2; col++) {
       const i = row * 3 + col;
       indices.push(i, i + 1, i + 3, i + 1, i + 4, i + 3);
@@ -158,23 +160,36 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color) {
     .mul(mix(color, uniform(new Color('#ffb83d')), 0.35))
     .mul(back.pow(0.8)).mul(thin).mul(transmission).mul(sunStrength).mul(forwardScatter);
   material.emissiveNode = transmissionNode;
-  // Reuse all texture maps and the lighting graph across a small autumn palette.
-  // Tint transmission as well as diffuse light so backlit leaves retain variety.
-  const palette = ['#fff3bb', '#ffffff', '#efb57f', '#d57d62', '#a7b777'].map((hex) => {
-    const tint = new Color(hex);
-    const variant = material.clone();
-    variant.color.copy(tint);
-    variant.emissiveNode = transmissionNode.mul(uniform(tint));
-    return { material: variant, tint };
-  });
-  const mesh = new Mesh(createGeometry(), material);
+  // Tiers share the atlas. Distant tiers skip normal-map sampling; the
+  // background also skips the packed surface map and forward-scatter lobe.
+  const tiers: DetailTier[] = ['high', 'medium', 'low'];
+  const palettes = Object.fromEntries(tiers.map(tier => [tier,
+    ['#fff3bb', '#ffffff', '#efb57f', '#d57d62', '#a7b777'].map(hex => {
+      const tint = new Color(hex);
+      const variant = material.clone();
+      variant.color.copy(tint);
+      if (tier !== 'high') variant.normalMap = null;
+      if (tier === 'low') {
+        variant.roughnessMap = null;
+        variant.emissiveNode = texture(maps.color).rgb.mul(uniform(material.color)).mul(uniform(tint))
+          .mul(mix(color, uniform(new Color('#ffb83d')), 0.35)).mul(back)
+          .mul(0.3).mul(transmission).mul(sunStrength);
+      } else {
+        variant.emissiveNode = transmissionNode.mul(uniform(tint));
+      }
+      return { material: variant, tint };
+    }),
+  ])) as Record<DetailTier, { material: MeshStandardNodeMaterial; tint: Color }[]>;
+  const geometries = { high: createGeometry('high'), medium: createGeometry('medium'), low: createGeometry('low') };
+  const palette = palettes.high;
+  const mesh = new Mesh(geometries.high, material);
   mesh.rotation.set(-0.18, -0.28, -0.38);
   return {
-    mesh, material, palette, transmission, sunStrength,
+    mesh, material, palette, palettes, geometries, transmission, sunStrength,
     dispose() {
-      mesh.geometry.dispose();
+      Object.values(geometries).forEach(geometry => geometry.dispose());
       material.dispose();
-      palette.forEach((variant) => variant.material.dispose());
+      Object.values(palettes).flat().forEach((variant) => variant.material.dispose());
       Object.values(maps).forEach((map) => map.dispose());
     },
   };
