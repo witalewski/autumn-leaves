@@ -75,18 +75,22 @@ function createTextures(pattern: number) {
         : noise(x * 6 + pattern * 19, t * 5 + pattern * 7);
       const stain = Math.max(0, Math.min(1, (patch - 0.36) * 3.5));
       const edgeBurn = Math.min(1, rim * (0.3 + medium * 0.7));
-      // Broad pigment transitions, asymmetric green remnants, red tips, and
-      // small freckles. These alter albedo, not just the overall material tint.
+      // Organic pigment fields retain distinct autumn palettes. Their albedo
+      // range is compressed below so each leaf has closely related shades.
       const pigment = pattern === 0 ? stain * 0.5
         : pattern === 1 ? Math.max(0, Math.min(1, (patch - 0.28) * 2.5 + redWarpY * 0.22))
         : pattern === 2 ? Math.min(1, stain * 0.55 + edgeBurn * 0.6)
         : pattern === 3 ? Math.min(1, stain * 0.7 + (x > 0 ? 0.22 : 0))
         : Math.max(0, Math.min(1, (patch - 0.42) * 5 + t * 0.5));
+      // Keep each palette's overall hue while reducing the difference between
+      // its light and dark pigment patches to one fifth of the former range.
+      const pigmentCenter = [0.2, 0.55, 0.3, 0.4, 0.5][pattern];
+      const colorPigment = pigmentCenter + (pigment - pigmentCenter) * 0.2;
       const freckles = Math.max(0, noise(x * 72 + pattern * 13, t * 90) - 0.67) * 2.2;
       const russet = Math.min(1, pigment * 0.6 + edgeBurn * 0.4);
       const detail = (broad - 0.5) * 10 + (medium - 0.5) * 22 + (fine - 0.5) * 12 - spot * 80 - freckles * 60;
       for (let channel = 0; channel < 3; channel++) {
-        albedo[p + channel] = baseColor[channel] + (stainColor[channel] - baseColor[channel]) * pigment
+        albedo[p + channel] = baseColor[channel] + (stainColor[channel] - baseColor[channel]) * colorPigment
           + detail * detailWeights[channel] + veins * veinWeights[channel] - edgeBurn * burnWeights[channel];
       }
       albedo[p + 3] = alpha;
