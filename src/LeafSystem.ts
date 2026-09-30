@@ -1,5 +1,5 @@
 import { DynamicDrawUsage, InstancedMesh, Matrix4, Vector3, type WebGPURenderer } from 'three/webgpu';
-import type { createLeaf } from './leaf';
+import { createGeometry, type createLeaf } from './leaf';
 import { MotionSimulation, type MotionConfig } from './simulation/MotionSimulation';
 import { createGpuMotion } from './simulation/GpuMotion';
 import { createPopulationBounds, createPopulationConfigs, type DepthCamera, type PopulationBounds, type PopulationId } from './simulation/DepthComposition';
@@ -15,7 +15,7 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
   const batches = populations.flatMap((population, populationIndex) => leaf.palettes[population.materialTier].map((variant, paletteIndex) => {
     const count = Math.ceil((population.count - paletteIndex) / leaf.palette.length);
     const compute = gpu ? createGpuMotion(count) : undefined;
-    const geometry = leaf.geometries[population.geometryTier].clone();
+    const geometry = leaf.geometryVariants[population.geometryTier][paletteIndex].clone();
     const mesh = new InstancedMesh(geometry, variant.material, count);
     // GPU transforms have no CPU bounding sphere. Fifteen conservative batches
     // remain drawn; depth LOD bounds their cost without per-instance readback.
@@ -25,7 +25,7 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
       compute.buffers.forEach((buffer, i) => geometry.setAttribute(`state${i}`, buffer.value));
       geometry.setAttribute('stateMatrices', mesh.instanceMatrix);
     } else mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    return { mesh, compute, populationIndex };
+    return { mesh, compute, populationIndex, paletteIndex };
   }));
   const meshes = batches.map(batch => batch.mesh);
   const kernels = batches.flatMap(batch => batch.compute ? [batch.compute.kernel] : []);
@@ -72,6 +72,17 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
     if (camera) setCameraBounds(camera);
     else configure();
     initial.reset();
+    // Bake form variation only on explicit reset. Keep storage attributes and
+    // instance slots intact; recomputed normals follow each bend and twist.
+    for (const batch of batches) {
+      const geometry = createGeometry(populations[batch.populationIndex].geometryTier, batch.paletteIndex, config.seed + batch.populationIndex * 137);
+      for (const name of ['position', 'normal']) {
+        const target = batch.mesh.geometry.getAttribute(name);
+        target.array.set(geometry.getAttribute(name).array);
+        target.needsUpdate = true;
+      }
+      geometry.dispose();
+    }
     let seed = (config.seed ^ 0x9e3779b9) >>> 0;
     const random = () => {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;

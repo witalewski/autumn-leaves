@@ -12,6 +12,7 @@ async function compile(path) {
     .replaceAll("'three/tsl'", JSON.stringify(import.meta.resolve('three/tsl')));
   // Runtime dependencies of LeafSystem; the simulation modules use only type imports.
   if (path === 'LeafSystem') {
+    source = source.replaceAll("'./leaf'", JSON.stringify(await compile('leaf')));
     for (const name of ['MotionSimulation', 'DepthComposition', 'GpuMotion']) {
       source = source.replaceAll(`'./simulation/${name}'`, JSON.stringify(await compile(`simulation/${name}`)));
     }
@@ -21,7 +22,7 @@ async function compile(path) {
   modules.set(path, url);
   return url;
 }
-const { createLeaf, createGeometry } = await import(await compile('leaf'));
+const { createLeaf, createGeometry, leafForms } = await import(await compile('leaf'));
 const { createLeafSystem } = await import(await compile('LeafSystem'));
 const { motionDefaults } = await import(await compile('simulation/MotionSimulation'));
 
@@ -41,6 +42,14 @@ test('geometry LOD reduces triangles while retaining valid UVs and finite curved
 
 test('real CPU foliage batches preserve seeded transforms, count controls, and resize state', () => {
   const leaf = createLeaf(new Vector3(0, 0.2, -1).normalize(), new Color('#fff0d0'));
+  const surfaces = leaf.palettes.high.map(p => p.material.map);
+  assert.equal(new Set(surfaces).size, 5);
+  const sample = surface => Array.from(surface.image.data).filter((_, i) => i % 4096 < 3);
+  assert.equal(new Set(surfaces.map(s => JSON.stringify(sample(s)))).size, 5);
+  leaf.palettes.high.forEach((p, i) => {
+    assert.equal(p.material.map, leaf.palettes.medium[i].material.map);
+    assert.equal(p.material.map, leaf.palettes.low[i].material.map);
+  });
   const config = { ...motionDefaults, leafCount: 100 };
   const system = createLeafSystem(leaf, config, {}, false);
   const camera = new PerspectiveCamera(40, 16 / 9, 0.1, 200);
@@ -49,12 +58,15 @@ test('real CPU foliage batches preserve seeded transforms, count controls, and r
   system.reset();
   const snapshot = () => system.meshes.map(mesh => Array.from(mesh.instanceMatrix.array));
   const seeded = snapshot();
+  const shapeSnapshot = () => system.meshes.map(mesh => Array.from(mesh.geometry.attributes.position.array));
+  const seededShapes = shapeSnapshot();
   assert.equal(system.meshes.length, 15);
   assert.deepEqual(system.getPopulationCounts().map(p => p.count), [5, 35, 60]);
   for (let frame = 0; frame < 60; frame++) system.update(1 / 60, false);
   assert.notDeepEqual(snapshot(), seeded);
   system.reset();
   assert.deepEqual(snapshot(), seeded);
+  assert.deepEqual(shapeSnapshot(), seededShapes);
   const beforeResize = snapshot();
   camera.aspect = 9 / 16;
   camera.position.z = 16 * 0.65 / camera.aspect;
@@ -76,10 +88,37 @@ test('real CPU foliage batches preserve seeded transforms, count controls, and r
   assert.ok(leaf.palettes.high.every(p => p.material.normalMap));
   assert.ok(leaf.palettes.medium.every(p => !p.material.normalMap && p.material.roughnessMap));
   assert.ok(leaf.palettes.low.every(p => !p.material.normalMap && !p.material.roughnessMap));
-  const owned = [...system.meshes.map(m => m.geometry), ...Object.values(leaf.geometries), ...Object.values(leaf.palettes).flat().map(p => p.material)];
+  config.seed = 42;
+  system.reset();
+  assert.notDeepEqual(shapeSnapshot(), seededShapes);
+  const textures = new Set(Object.values(leaf.palettes).flat().flatMap(p => [p.material.map, p.material.normalMap, p.material.roughnessMap]).filter(Boolean));
+  const owned = [...textures, ...system.meshes.map(m => m.geometry), ...Object.values(leaf.geometryVariants).flat(), ...Object.values(leaf.palettes).flat().map(p => p.material)];
   let disposed = 0;
   owned.forEach(resource => resource.addEventListener('dispose', () => disposed++));
   system.dispose();
   leaf.dispose();
   assert.equal(disposed, owned.length);
+});
+
+
+test('leaf forms have distinct bending, silhouettes and normals at every LOD', () => {
+  for (const tier of ['high', 'medium', 'low']) {
+    const shapes = leafForms.map((_, i) => createGeometry(tier, i, 2409));
+    assert.equal(new Set(shapes.map(g => JSON.stringify(Array.from(g.attributes.position.array)))).size, 5);
+    for (let i = 0; i < shapes.length; i++) {
+      const g = shapes[i], repeat = createGeometry(tier, i, 2409), other = createGeometry(tier, i, 42);
+      assert.deepEqual(g.attributes.position.array, repeat.attributes.position.array);
+      assert.notDeepEqual(g.attributes.position.array, other.attributes.position.array);
+      assert.notDeepEqual(g.attributes.normal.array, other.attributes.normal.array);
+      assert.ok(g.attributes.position.array.every(Number.isFinite));
+      for (let j = 0; j < g.attributes.normal.count; j++) {
+        const n = new Vector3().fromBufferAttribute(g.attributes.normal, j);
+        assert.ok(Math.abs(n.length() - 1) < 1e-5);
+      }
+      // Cutout and vein coordinates remain shared even as the blade warps.
+      assert.deepEqual(g.attributes.uv.array, shapes[0].attributes.uv.array);
+      repeat.dispose(); other.dispose();
+    }
+    shapes.forEach(g => g.dispose());
+  }
 });

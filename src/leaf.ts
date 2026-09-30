@@ -28,12 +28,16 @@ function noise(x: number, y: number): number {
   return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
 }
 
-function createTextures() {
-  const size = 768;
+function createTextures(pattern: number) {
+  // Five reusable 512px surfaces, shared across depth tiers; generated once.
+  const size = 512;
   const albedo = new Uint8ClampedArray(size * size * 4);
   const surface = new Uint8Array(albedo.length);
   const normals = new Uint8Array(albedo.length);
   const heights = new Float32Array(size * size);
+  const baseColor = [[225, 172, 46], [220, 133, 35], [202, 115, 44], [174, 73, 36], [158, 154, 53]][pattern];
+  const stainColor = [[164, 69, 27], [144, 35, 25], [109, 58, 29], [226, 157, 41], [219, 143, 36]][pattern];
+  const detailWeights = [1, 0.7, 0.35], veinWeights = [14, 18, 7], burnWeights = [36, 30, 12];
 
   for (let row = 0; row < size; row++) {
     const t = row / (size - 1);
@@ -41,8 +45,8 @@ function createTextures() {
       const x = col / (size - 1) - 0.5;
       const ax = Math.abs(x);
       const p = (row * size + col) * 4;
-      const broad = noise(x * 12 + 40, t * 9);
-      const medium = noise(x * 55 + 40, t * 65);
+      const broad = noise(x * 12 + 40 + pattern * 17, t * 9 + pattern * 5);
+      const medium = noise(x * 55 + 40 + pattern * 11, t * 65);
       const fine = noise(x * 240 + 40, t * 290);
       const width = halfWidth(t);
       const teeth = 0.955 + 0.045 * Math.abs(Math.sin(t * 31 * Math.PI + (x > 0 ? 0.6 : 0)));
@@ -60,11 +64,23 @@ function createTextures() {
       const veins = Math.min(1, midrib + vein * 0.6 + veinlets);
       const rim = Math.exp(-Math.max(0, edge) * 170);
       const spot = Math.max(0, noise(x * 130, t * 150) - 0.8) * 1.5;
-      const russet = Math.min(1, Math.max(0, (broad - 0.48) * 2.2 + rim * 0.28));
-      const detail = (medium - 0.5) * 28 + (fine - 0.5) * 16 - spot * 80;
-      albedo[p] = 190 + broad * 37 - russet * 35 + detail + veins * 14;
-      albedo[p + 1] = 117 + broad * 32 - russet * 72 + detail * 0.6 + veins * 21;
-      albedo[p + 2] = 27 + broad * 14 - russet * 12 + detail * 0.2 + veins * 8;
+      const patch = noise(x * 6 + pattern * 19, t * 5 + pattern * 7);
+      const stain = Math.max(0, Math.min(1, (patch - 0.36) * 3.5));
+      const edgeBurn = Math.min(1, rim * (0.3 + medium * 0.7));
+      // Broad pigment transitions, asymmetric green remnants, red tips, and
+      // small freckles. These alter albedo, not just the overall material tint.
+      const pigment = pattern === 0 ? stain * 0.5
+        : pattern === 1 ? Math.min(1, stain * 0.8 + Math.max(0, t - 0.55) * 1.3)
+        : pattern === 2 ? Math.min(1, stain * 0.55 + edgeBurn * 0.6)
+        : pattern === 3 ? Math.min(1, stain * 0.7 + (x > 0 ? 0.22 : 0))
+        : Math.max(0, Math.min(1, (patch - 0.42) * 5 + t * 0.5));
+      const freckles = Math.max(0, noise(x * 72 + pattern * 13, t * 90) - 0.67) * 2.2;
+      const russet = Math.min(1, pigment * 0.6 + edgeBurn * 0.4);
+      const detail = (broad - 0.5) * 10 + (medium - 0.5) * 22 + (fine - 0.5) * 12 - spot * 80 - freckles * 60;
+      for (let channel = 0; channel < 3; channel++) {
+        albedo[p + channel] = baseColor[channel] + (stainColor[channel] - baseColor[channel]) * pigment
+          + detail * detailWeights[channel] + veins * veinWeights[channel] - edgeBurn * burnWeights[channel];
+      }
       albedo[p + 3] = alpha;
       // R: optical thickness, G: roughness. Kept linear, never sRGB.
       surface[p] = Math.min(255, 62 + veins * 155 + russet * 60 + spot * 120 + rim * 30);
@@ -99,7 +115,34 @@ function createTextures() {
   return { color, normal: map(normals), surface: map(surface) };
 }
 
-export function createGeometry(tier: DetailTier = 'high') {
+export const leafForms = [
+  { name: 'open oval', width: 1.12, bend: 0.06, cup: 0.08, twist: 0.12, hook: 0.02, lobes: 0 },
+  { name: 'cupped beech', width: 1, bend: 0.19, cup: 0.65, twist: -0.3, hook: 0.08, lobes: 0 },
+  { name: 'curled lance', width: 0.72, bend: 0.38, cup: -0.2, twist: 0.6, hook: 0.32, lobes: 0 },
+  { name: 'twisted blade', width: 0.9, bend: -0.16, cup: 0.3, twist: -1.35, hook: 0.12, lobes: 0 },
+  { name: 'wavy broadleaf', width: 1.22, bend: 0.15, cup: -0.4, twist: 0.7, hook: 0.05, lobes: 0.18 },
+] as const;
+
+export function createGeometry(tier: DetailTier = 'high', formIndex = 0, seed = 2409) {
+  const form = leafForms[formIndex];
+  const variation = hash(seed, formIndex) * 2 - 1;
+  const bend = form.bend + variation * 0.06;
+  const twist = form.twist + variation * 0.25;
+  function surfacePoint(x: number, t: number) {
+    const blade = Math.max(0, (t - 0.105) / 0.895);
+    const width = form.width * (1 + form.lobes * Math.sin(blade * Math.PI * 5));
+    const across = x * width;
+    const cup = form.cup * across * across / 0.34;
+    const angle = twist * blade;
+    const centerZ = bend * Math.sin(t * Math.PI) + form.hook * blade ** 4;
+    // Twist around the curved midrib. UVs remain on the original flat blade,
+    // so the cutout, normal map, veins, and pigment warp with the geometry.
+    return [
+      (across * Math.cos(angle) - cup * Math.sin(angle)) * 3.15,
+      (t - 0.5 - form.hook * 0.45 * blade ** 4) * 3.15,
+      (centerZ + across * Math.sin(angle) + cup * Math.cos(angle)) * 3.15,
+    ];
+  }
   const strips = tier === 'high' ? 10 : tier === 'medium' ? 6 : 4;
   const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
   // Shared UVs and central fold; reduce longitudinal strips with distance.
@@ -108,9 +151,7 @@ export function createGeometry(tier: DetailTier = 'high') {
     const width = halfWidth(t) * 1.035 + 0.002;
     for (let column = -1; column <= 1; column++) {
       const x = column * width;
-      const z = 0.13 * Math.sin(t * Math.PI) - Math.abs(x) * 0.32
-        + x * (t - 0.3) * 0.5 + x * x * 0.8;
-      positions.push(x * 3.15, (t - 0.5) * 3.15, z * 3.15);
+      positions.push(...surfacePoint(x, t));
       uvs.push(x + 0.5, t);
     }
   }
@@ -123,7 +164,7 @@ export function createGeometry(tier: DetailTier = 'high') {
   const base = positions.length / 3;
   for (const t of [0, 0.06, 0.125]) {
     for (const x of [-0.009, 0.009]) {
-      positions.push(x * 3.15, (t - 0.5) * 3.15, 0.13 * Math.sin(t * Math.PI) * 3.15);
+      positions.push(...surfacePoint(x, t));
       uvs.push(x + 0.5, t);
     }
   }
@@ -140,7 +181,8 @@ export function createGeometry(tier: DetailTier = 'high') {
 }
 
 export function createLeaf(sunDirection: Vector3, sunColor: Color) {
-  const maps = createTextures();
+  const surfaces = leafForms.map((_, index) => createTextures(index));
+  const maps = surfaces[0];
   const material = new MeshStandardNodeMaterial({
     map: maps.color, normalMap: maps.normal, normalScale: new Vector2(0.65, 0.65),
     roughnessMap: maps.surface, roughness: 0.85, metalness: 0,
@@ -164,33 +206,40 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color) {
   // background also skips the packed surface map and forward-scatter lobe.
   const tiers: DetailTier[] = ['high', 'medium', 'low'];
   const palettes = Object.fromEntries(tiers.map(tier => [tier,
-    ['#fff3bb', '#ffffff', '#efb57f', '#d57d62', '#a7b777'].map(hex => {
+    ['#fff3cf', '#fff0dd', '#efcfaf', '#edbdab', '#e0e7bb'].map((hex, index) => {
       const tint = new Color(hex);
       const variant = material.clone();
       variant.color.copy(tint);
+      const surface = surfaces[index];
+      variant.map = surface.color;
+      variant.normalMap = surface.normal;
+      variant.roughnessMap = surface.surface;
+      const pigment = texture(surface.color).rgb.mul(uniform(material.color)).mul(uniform(tint));
+      const warm = mix(color, uniform(new Color('#ffb83d')), 0.35);
       if (tier !== 'high') variant.normalMap = null;
       if (tier === 'low') {
         variant.roughnessMap = null;
-        variant.emissiveNode = texture(maps.color).rgb.mul(uniform(material.color)).mul(uniform(tint))
-          .mul(mix(color, uniform(new Color('#ffb83d')), 0.35)).mul(back)
+        variant.emissiveNode = pigment.mul(warm).mul(back)
           .mul(0.3).mul(transmission).mul(sunStrength);
       } else {
-        variant.emissiveNode = transmissionNode.mul(uniform(tint));
+        variant.emissiveNode = pigment.mul(warm).mul(back.pow(0.8))
+          .mul(texture(surface.surface).r.oneMinus().pow(1.7)).mul(transmission).mul(sunStrength).mul(forwardScatter);
       }
       return { material: variant, tint };
     }),
   ])) as Record<DetailTier, { material: MeshStandardNodeMaterial; tint: Color }[]>;
-  const geometries = { high: createGeometry('high'), medium: createGeometry('medium'), low: createGeometry('low') };
+  const geometryVariants = Object.fromEntries(tiers.map(tier => [tier, leafForms.map((_, index) => createGeometry(tier, index))])) as Record<DetailTier, BufferGeometry[]>;
+  const geometries = { high: geometryVariants.high[0], medium: geometryVariants.medium[0], low: geometryVariants.low[0] };
   const palette = palettes.high;
   const mesh = new Mesh(geometries.high, material);
   mesh.rotation.set(-0.18, -0.28, -0.38);
   return {
-    mesh, material, palette, palettes, geometries, transmission, sunStrength,
+    mesh, material, palette, palettes, geometries, geometryVariants, transmission, sunStrength,
     dispose() {
-      Object.values(geometries).forEach(geometry => geometry.dispose());
+      Object.values(geometryVariants).flat().forEach(geometry => geometry.dispose());
       material.dispose();
       Object.values(palettes).flat().forEach((variant) => variant.material.dispose());
-      Object.values(maps).forEach((map) => map.dispose());
+      surfaces.forEach(surface => Object.values(surface).forEach(map => map.dispose()));
     },
   };
 }

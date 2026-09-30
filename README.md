@@ -53,7 +53,7 @@ This follows [Vite's relative-base support](https://vite.dev/guide/build#relativ
 - `simulation/MotionSimulation.ts`: seeded fixed-size state pool, spatial/time-varying wind, and CPU integration at 120 Hz. Gravity, orientation-dependent drag, perpendicular lift, aerodynamic alignment, asymmetric tumble, flutter, and angular damping drive velocity and quaternion orientation. Parameters vary per leaf. Scratch vectors are reused.
 - `renderer.ts`: WebGPURenderer initialization, backend detection, and filmic tone mapping.
 - `sky.ts`: TSL gradient, atmospheric sun glow, sun disc, and procedural cloud wisps.
-- `leaf.ts`: three curved geometry tiers and five autumn tints per material tier. Foreground uses normal/roughness maps and full backlighting; midground omits the normal map; background also omits the packed surface map and uses a simpler transmission term. All tiers share textures, alpha cutouts, and double-sided lighting.
+- `leaf.ts`: three geometry tiers, five leaf forms, and five patterned autumn surfaces per material tier. Foreground uses normal/roughness maps and full backlighting; midground omits the normal map; background also omits the packed surface map and uses a simpler transmission term. All tiers share textures, alpha cutouts, and double-sided lighting.
 - `simulation/DepthComposition.ts`: population settings and perspective-aware depth bounds.
 - `scene/Atmosphere.ts`: depth-dependent exponential haze matching the sky gradient, applied in linear color space before tone mapping without an extra render pass.
 - `debug.ts`: development controls and statistics.
@@ -63,7 +63,9 @@ On WebGPU, CPU work per frame consists of advancing fixed-step time and submitti
 
 Leaves recycle above or upstream of the frame at their own depth. Each leaf keeps its population, palette, and visual scale across recycling. A population-specific spring and depth-boundary guard retain the assigned band without respawning leaves visibly along Z. CPU/GPU integration uses the same depth rules, while respawn random sequences intentionally differ. Velocity/torque limits keep exploratory control settings stable. This is an intentionally approximate visual model, not a calibrated fluid simulation.
 
-The 768×768 albedo/alpha, normal, and packed thickness/roughness maps are generated once at startup. They contain a serrated silhouette, branching veins, mottled autumn pigment, and fine surface variation. Albedo uses sRGB; data maps remain linear. The mesh closely follows the silhouette, uses alpha testing/MSAA coverage, and has no alpha blending. These are procedural **placeholder assets**, not scanned foliage. There are no external texture downloads.
+Five 512×512 procedural surface sets are generated once at startup and shared across depth tiers. Each contains albedo/alpha, normals, and packed thickness/roughness, with its own pigment pattern: golden mottling, red tips, burnt edges, asymmetric russet patches, or green remnants. Veins, freckles, and fine surface noise vary too. Albedo uses sRGB; data maps remain linear. The uncompressed maps use approximately 20 MiB including mipmaps. These are procedural **placeholder assets**, not scanned foliage; there are no external texture downloads.
+
+The five forms range from an open oval to a cupped blade, curled narrow leaf, strongly twisted blade, and wavy broadleaf. Geometry warps the shared UV silhouette so veins, pigment, and cutout edges follow each bend. The seed adds repeatable bend/twist variation per population/form batch, alongside the existing per-instance size/proportion variation. Geometry and normals are baked only at startup or explicit reset, remain stable during recycling, and retain the same triangle counts and 15-batch rendering budget. Forms have distinct surface patterns rather than tint changes alone.
 
 The renderer prefers WebGPU and lets Three.js fall back to WebGL2 with the same node materials. Append `?backend=webgl` to exercise WebGL2 explicitly. In development, `?backend=none` exercises the static CSS sky and unsupported-renderer message. Initialization, rendering, and device-loss errors also reveal that fallback. Reload to retry after device loss.
 
@@ -81,11 +83,11 @@ The fixed camera looks along -Z. Population bounds derive from camera position, 
 
 All fifteen foliage batches are conservatively drawn because GPU transforms have no CPU bounding sphere. Full WebGPU foliage costs 11,840 triangles versus 22,000 with the former geometry at 500 leaves (about 46% fewer). Total scene draws rise from 7 to 17; the local browser check reports 12,801 total scene triangles. WebGL2 uses the same composition rules with a smaller CPU pool and 3,361 total scene triangles.
 
-Production shows 32 leaves distributed across the three depth populations; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Adaptive quality, cinematic post-processing, compressed assets, new botanical silhouettes, and final artistic tuning remain later phases.
+Production shows 32 leaves distributed across the three depth populations; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Adaptive quality, cinematic post-processing, compressed assets, scanned foliage assets, and final artistic tuning remain later phases.
 
 ## Verification
 
-`npm test` also checks population capacity/assignment, frustum projection at landscape/portrait aspect ratios and zoom, clipping, seeded depth replay, offscreen recycling in both wind directions, finite depth state through two simulated minutes of extreme controls, geometry LOD, real CPU batch transforms/count controls, resize/pause behavior, and geometry/material disposal.
+`npm test` also checks population capacity/assignment, frustum projection at landscape/portrait aspect ratios and zoom, clipping, seeded depth replay, offscreen recycling in both wind directions, finite depth state through two simulated minutes of extreme controls, geometry LOD, distinct seeded forms with recomputed normals, shared per-tier surface textures, real CPU batch transforms/count controls, resize/pause behavior, and geometry/material disposal.
 
 `npm test` checks seeded replay, render-cadence independence, pause/resume timing, reduced motion, recycling without replacing pool objects, finite state and unit quaternions over two simulated minutes at extreme controls, gravity/drag/damping response, and wind continuity. `npm run build` performs strict TypeScript checking and builds the production bundle.
 
