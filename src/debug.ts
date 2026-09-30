@@ -59,6 +59,22 @@ export function createDebug(settings: Settings, renderer: WebGPURenderer, backen
     folder.close();
   }
   composition.close();
+  const post = gui.addFolder('Cinematic post');
+  post.add(settings, 'postEnabled').name('Enable post / compare');
+  post.add(settings, 'bloomStrength', 0, 0.6, 0.01).name('Bloom strength');
+  post.add(settings, 'bloomRadius', 0, 1, 0.01).name('Bloom radius');
+  post.add(settings, 'bloomThreshold', 0.5, 3, 0.01).name('Bloom threshold');
+  post.add(settings, 'flareStrength', 0, 0.5, 0.01).name('Lens flare');
+  post.add(settings, 'contrast', 0.7, 1.4, 0.01).name('Contrast');
+  post.add(settings, 'saturation', 0, 1.5, 0.01).name('Saturation');
+  post.add(settings, 'temperature', -0.15, 0.15, 0.005).name('Temperature');
+  post.add(settings, 'tint', -0.15, 0.15, 0.005).name('Tint');
+  post.add(settings, 'highlightWarmth', 0, 0.15, 0.005).name('Highlight warmth');
+  post.add(settings, 'shadowCoolness', 0, 0.15, 0.005).name('Shadow coolness');
+  post.add(settings, 'blackLevel', -0.03, 0.05, 0.001).name('Black level');
+  post.add(settings, 'vignetteStrength', 0, 0.6, 0.01).name('Vignette');
+  post.add(settings, 'grainStrength', 0, 0.06, 0.001).name('Film grain');
+  post.close();
   const view = gui.addFolder('Renderer');
   view.add(settings, 'exposure', 0.3, 2, 0.01).name('Exposure');
   view.add(settings, 'renderScale', 0.5, 1, 0.05).name('Render scale').onChange(resize);

@@ -4,6 +4,7 @@ import { createLeaf } from './leaf';
 import { createRenderer } from './renderer';
 import { createSky } from './sky';
 import { createLeafSystem } from './LeafSystem';
+import { cinematicDefaults, createCinematicPost } from './scene/CinematicPost';
 import { createAtmosphere } from './scene/Atmosphere';
 import { motionDefaults } from './simulation/MotionSimulation';
 
@@ -13,6 +14,7 @@ export const settings = {
   haze: 0.45, clouds: 0.32, exposure: 1,
   depthHazeStart: 18, depthHazeFalloff: 0.035, depthHazeStrength: 0.65,
   ...motionDefaults,
+  ...cinematicDefaults,
   renderScale: 1, dprCap: 1.75,
 };
 export type Settings = typeof settings;
@@ -61,6 +63,7 @@ async function start() {
   const foliage = createLeafSystem(leaf, settings, renderer, gpu);
   scene.add(...foliage.meshes);
   scene.add(sky.mesh, sun, ambient);
+  const post = createCinematicPost(renderer, scene, camera, settings, sunDirection);
   const abort = new AbortController();
   const events = { signal: abort.signal };
   let failed = false;
@@ -108,6 +111,7 @@ async function start() {
     sky.clouds.value = settings.clouds;
     sky.sunIntensity.value = settings.sunIntensity;
     renderer.toneMappingExposure = settings.exposure;
+    post.apply();
     updateInteractionHint();
     foliage.configure();
   }
@@ -152,7 +156,7 @@ async function start() {
     lastTime = now;
     try {
       foliage.update(dt, motion.matches);
-      renderer.render(scene, camera);
+      post.render(motion.matches);
     } catch (error) { fail(error); return; }
     if (failed) return;
     sampleTime += elapsed;
@@ -182,6 +186,7 @@ async function start() {
     abort.abort();
     observer.disconnect();
     stats?.destroy();
+    post.dispose();
     foliage.dispose();
     leaf.dispose();
     sky.dispose();
@@ -193,6 +198,8 @@ async function start() {
   foliage.reset();
   // Compile before dismissing the loading state, so shader failures retain the static sky.
   await renderer.compileAsync(scene, camera);
+  if (failed) return;
+  post.render(motion.matches);
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');

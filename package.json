@@ -1,7 +1,7 @@
 {
   "name": "autumn-leaves",
   "version": "1.0.0",
-  "description": "Phase 5: depth composition, foliage LOD, and atmospheric haze",
+  "description": "Phase 6: cinematic bloom, grading, film grain, and lens flare",
   "private": true,
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

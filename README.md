@@ -1,6 +1,6 @@
 # Autumn — a study of motion
 
-Phases 1–5 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Production defaults to 32 visible leaves on both backends. Development uses 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
+Phases 1–6 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Production defaults to 32 visible leaves on both backends. Development uses 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
 
 ## Run
 
@@ -83,7 +83,15 @@ The fixed camera looks along -Z. Population bounds derive from camera position, 
 
 All fifteen foliage batches are conservatively drawn because GPU transforms have no CPU bounding sphere. Full WebGPU foliage costs 11,840 triangles versus 22,000 with the former geometry at 500 leaves (about 46% fewer). Total scene draws rise from 7 to 17; the local browser check reports 12,801 total scene triangles. WebGL2 uses the same composition rules with a smaller CPU pool and 3,361 total scene triangles.
 
-Production shows 32 leaves distributed across the three depth populations; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Adaptive quality, cinematic post-processing, compressed assets, scanned foliage assets, and final artistic tuning remain later phases.
+Production shows 32 leaves distributed across the three depth populations; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Adaptive quality, compressed assets, scanned foliage assets, and final artistic tuning remain later phases.
+
+## Phase 6 cinematic post
+
+`scene/CinematicPost.ts` renders the scene into an HDR target, extracts bloom at half resolution with a mip blur chain, and combines a procedural lens flare, ACES tone mapping, grading, vignette, and grain in one final pass. Tone mapping and output color conversion each happen once. Render targets follow the drawing-buffer size, including DPR and render-scale changes, and are disposed with the scene.
+
+The **Cinematic post** development folder offers a before/after toggle, bloom threshold/radius/strength, flare intensity, contrast, saturation, temperature, tint, highlight warmth, shadow coolness, black level, vignette, and grain. Exposure remains in **Renderer**. Reset/export include all post settings. The defaults use restrained bloom and warm highlights with slightly cool shadows.
+
+Flare follows the projected directional sun, fades at the screen edge, and disappears behind the camera. Five depth samples across the source suppress flare under leaf occlusion; this is an inexpensive approximation, not volumetric cloud occlusion. Pixel-scale monochrome grain varies each frame and is strongest in midtones. Pausing freezes grain as well as leaves; reduced motion keeps grain static. The comparison toggle bypasses all post effects while retaining the original renderer's ACES exposure.
 
 ## Verification
 
