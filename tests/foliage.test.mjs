@@ -11,6 +11,7 @@ async function compile(path) {
   source = source.replaceAll("'three/webgpu'", JSON.stringify(import.meta.resolve('three/webgpu')))
     .replaceAll("'three/tsl'", JSON.stringify(import.meta.resolve('three/tsl')));
   // Runtime dependencies of LeafSystem; the simulation modules use only type imports.
+  if (path === 'leaf') source = source.replaceAll("'./foliage/AtlasLayout'", JSON.stringify(await compile('foliage/AtlasLayout')));
   if (path === 'LeafSystem') {
     source = source.replaceAll("'./leaf'", JSON.stringify(await compile('leaf')));
     for (const name of ['MotionSimulation', 'DepthComposition', 'GpuMotion']) {

@@ -1,6 +1,7 @@
 import './style.css';
 import { Color, DirectionalLight, HemisphereLight, MathUtils, PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
-import { createLeaf } from './leaf';
+import { createLeaf, type LeafAtlas } from './leaf';
+import { loadLeafAtlas } from './foliage/LeafAssets';
 import { createRenderer } from './renderer';
 import { createSky } from './sky';
 import { createLeafSystem } from './LeafSystem';
@@ -58,7 +59,23 @@ async function start() {
   const sunColor = new Color(settings.sunColor);
   const sun = new DirectionalLight(sunColor, settings.sunIntensity);
   const ambient = new HemisphereLight('#c1d9ef', '#72604c', settings.skyIntensity);
-  const leaf = createLeaf(sunDirection, sunColor);
+  let atlas: LeafAtlas | undefined;
+  try {
+    if (!import.meta.env.DEV || params.get('assets') !== 'procedural') atlas = await loadLeafAtlas(renderer);
+  }
+  catch (error) {
+    // Asset/network/worker failures retain the existing procedural artwork.
+    if (import.meta.env.DEV) console.warn('Foliage atlas unavailable; using procedural surfaces.', error);
+  }
+  const leaf = createLeaf(sunDirection, sunColor, atlas);
+  host.dataset.assets = atlas ? 'KTX2 atlas' : 'Procedural fallback';
+  if (import.meta.env.DEV && atlas) {
+    console.info('Foliage atlas:', JSON.stringify(Object.values(atlas).map(map => ({
+      format: map.format, width: map.image.width, height: map.image.height,
+      mipLevels: map.mipmaps.length,
+      residentBytes: map.mipmaps.reduce((sum: number, mip: { data: ArrayBufferView }) => sum + mip.data.byteLength, 0),
+    }))));
+  }
   const sky = createSky(sunDirection, sunColor, settings.seed);
   const gpu = capabilities.backend === 'WebGPU';
   settings.leafCount = import.meta.env.DEV ? (gpu ? 500 : 100) : motionDefaults.leafCount;

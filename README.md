@@ -1,6 +1,6 @@
 # Autumn — a study of motion
 
-Phases 1–7 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Production starts at 32 visible leaves on both backends and adapts down to 20 under sustained load. Development uses 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
+Phases 1–8 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Production starts at 32 visible leaves on both backends and adapts down to 20 under sustained load. Development uses 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
 
 ## Run
 
@@ -32,7 +32,7 @@ For future textures, models, or other static assets:
 
 - Prefer Vite imports, e.g. `import leafUrl from './assets/leaf.ktx2?url'`, or a statically analyzable `new URL('./assets/leaf.ktx2', import.meta.url).href`. Pass that URL to the Three.js loader.
 - For files deliberately placed in `public/`, use `import.meta.env.BASE_URL + 'textures/leaf.ktx2'` in TypeScript, or `%BASE_URL%textures/leaf.ktx2` in HTML.
-- Avoid origin-root URLs such as `/textures/leaf.ktx2`, which would omit the repository path on Pages. No external texture/model files are loaded by the current procedural prototype.
+- Avoid origin-root URLs such as `/textures/leaf.ktx2`, which would omit the repository path on Pages. The foliage atlas and Basis transcoder are imported through Vite and served from the same site; there are no remote CDN dependencies or mesh downloads.
 
 This follows [Vite's relative-base support](https://vite.dev/guide/build#relative-base). If client-side routes are introduced later, revisit the base/routing strategy; this prototype has a single page and no router.
 
@@ -63,7 +63,7 @@ On WebGPU, CPU work per frame consists of advancing fixed-step time and submitti
 
 Leaves recycle above or upstream of the frame at their own depth. Each leaf keeps its population, palette, and visual scale across recycling. A population-specific spring and depth-boundary guard retain the assigned band without respawning leaves visibly along Z. CPU/GPU integration uses the same depth rules, while respawn random sequences intentionally differ. Velocity/torque limits keep exploratory control settings stable. This is an intentionally approximate visual model, not a calibrated fluid simulation.
 
-Five 512×512 procedural surface sets are generated once at startup and shared across depth tiers. Each contains albedo/alpha, normals, and packed thickness/roughness, with its own pigment pattern: golden mottling, asymmetric red-and-amber mottling, burnt edges, asymmetric russet patches, or green remnants. Within each leaf, pigment colors stay close together: patch contrast is compressed to 20% of its original range around the palette’s characteristic hue. Veins, freckles, and fine surface noise vary too. Albedo uses sRGB; data maps remain linear. The uncompressed maps use approximately 20 MiB including mipmaps. These are procedural **placeholder assets**, not scanned foliage; there are no external texture downloads.
+Five procedural surface sets are baked offline into three padded 1536×1024 KTX2 atlases and shared across depth tiers. Each tile resamples the original 512px surface into a 480px interior with a 16px border. Each contains albedo/alpha, normals, and packed thickness/roughness, with its own pigment pattern: golden mottling, asymmetric red-and-amber mottling, burnt edges, asymmetric russet patches, or green remnants. Within each leaf, pigment colors stay close together: patch contrast is compressed to 20% of its original range around the palette’s characteristic hue. Veins, freckles, and fine surface noise vary too. Albedo uses sRGB; data maps remain linear. The compressed atlas uses approximately 6 MiB including mipmaps on BC7/ASTC-class hardware, versus 20 MiB for the former uncompressed maps. These remain procedural **placeholder assets**, not scanned foliage. If atlas loading fails, the original procedural surfaces are generated once as a fallback.
 
 The five forms range from an open oval to a gently cupped blade, softly arched narrow leaf, almost-flat blade, and wavy broadleaf. Geometry warps the shared UV silhouette so veins, pigment, and cutout edges follow each bend. The seed adds repeatable bend/twist variation per population/form batch (restrained for the almost-flat form), alongside the existing per-instance size/proportion variation. Geometry and normals are baked only at startup or explicit reset, remain stable during recycling, and retain the same triangle counts and 15-batch rendering budget. Forms have distinct surface patterns rather than tint changes alone. All forms use restrained cupping, tip curl, and twist; seeded variation is limited to avoid folded or crumpled silhouettes.
 
@@ -83,7 +83,7 @@ The fixed camera looks along -Z. Population bounds derive from camera position, 
 
 All fifteen foliage batches are conservatively drawn because GPU transforms have no CPU bounding sphere. Full WebGPU foliage costs 12,800 triangles versus 22,000 with the former geometry at 500 leaves (about 42% fewer). Foliage uses fifteen draw batches. WebGL2 uses the same composition proportions with a smaller CPU pool and 2,560 foliage triangles.
 
-The default mix is 10% foreground, 40% midground, and 50% background. Production shows 32 leaves distributed as 3 foreground, 13 midground, and 16 background; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Compressed assets, scanned foliage assets, and final artistic tuning remain later phases.
+The default mix is 10% foreground, 40% midground, and 50% background. Production shows 32 leaves distributed as 3 foreground, 13 midground, and 16 background; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Scanned foliage assets and final artistic tuning remain later work.
 
 ## Phase 6 cinematic post
 
@@ -112,6 +112,28 @@ The development **Renderer** folder offers Auto/High/Medium/Low and a 30/60 FPS 
 For an end-to-end load check, open `/tests/quality.html` (or append `?backend=webgl`) in the development server. **Add 40 ms frame load** introduces intentional CPU pressure into the real scene. Auto should move High → Medium → Low over roughly 17 seconds. Stop the load and allow roughly 30 seconds for full recovery on a 60 Hz display. This harness is excluded from production. Unit tests cover 30/60 FPS traces, rolling-window expiry, cooldown, asymmetric recovery, isolated stalls, jitter, fixed mode, suspension, and production count limits.
 
 Local browser checks cover desktop WebGPU, portrait WebGL2, fixed presets, and automatic transitions under synthetic load. These checks do not establish sustained performance or thermal behavior on a physical mid-range smartphone. For device profiling, run the production scene on physical desktop/mobile hardware, watch the development overlay if available, and verify stable frame times after several minutes, resizing/orientation changes, hide/resume, and reduced motion.
+
+## Phase 8 asset optimization
+
+`foliage/LeafAssets.ts` loads three same-origin KTX2 atlases through Three.js `KTX2Loader` after renderer initialization. Albedo/alpha is sRGB; the normal and packed thickness/roughness maps are linear. UASTC + Zstd preserves the fine veins and cutout edges, with a complete eleven-level mip chain. `foliage/AtlasLayout.ts` defines tile addressing and padding. Each form's baked UVs address its own tile; all fifteen material batches share three texture allocations. Seed resets update only positions/normals and keep atlas UVs intact. This preserves the established draw-call budget and art direction.
+
+Local checks verified WebGPU and portrait WebGL2 atlas rendering, seed reset, the procedural fallback, and a production build served beneath `/autumn-leaves/`. The WebGPU check selected ASTC 4×4 and uploaded 2,097,184 mip bytes per atlas.
+
+The Basis WASM decoder runs in one temporary worker and is disposed after loading. WASM is used only for standard texture transcoding; simulation still uses WebGPU compute or the existing CPU fallback. The build encoder is a development dependency and never ships. Both decoder files use Vite asset imports and explicit URL mapping, so production fingerprints and GitHub Pages subpaths work. Third-party attribution ships in `THIRD_PARTY_NOTICES.txt`.
+
+If any atlas fails to download/transcode, successfully loaded textures are disposed, the worker is closed, and the original procedural artwork is used. In development, `?assets=procedural` exercises that fallback without requiring a broken network. The `#app` asset diagnostic and startup console identify the chosen path; development also logs actual transcoded format, dimensions, mip levels, and uploaded mip bytes. Alpha clipping, backlighting, and normal/roughness material tiers remain intact.
+
+```sh
+npm run assets:bake      # Rebuild committed KTX2 files and their hash/size manifest
+npm run build
+npm run assets:report    # Analyze dist and regenerate ASSET_REPORT.md
+```
+
+The bake script reuses `createTextures` from `leaf.ts`, preserving the procedural palette source. Re-bake after texture or atlas-layout edits. Normal builds use the checked-in assets and do not run the encoder. Asset tests check container dimensions, transfer functions, mip chains, payload hashes, tile coordinates, geometry preservation, texture sharing, and disposal.
+
+See [ASSET_REPORT.md](./ASSET_REPORT.md) for per-file payload sizes and GPU memory estimates. The complete build is about 5.37 MiB raw / 4.37 MiB with gzip; approximately 3.85 MiB of that is the KTX2 artwork. GPU foliage texture storage falls from 20 MiB to about 6 MiB with native 4×4 compression. Hardware lacking native compression may transcode to RGBA32 (about 24 MiB due to padding), so inspect the actual format when profiling. HDR/bloom render targets remain the largest variable memory cost; phase 7's resolution controls reduce that cost quadratically.
+
+Meshopt is deferred on measured scope: all source leaf geometry totals about 16.3 KiB and is generated locally, with zero geometry download. A mesh decoder and GLB would increase the transferred payload here. Add Meshopt when imported/scanned GLB assets justify it.
 
 ## Verification
 

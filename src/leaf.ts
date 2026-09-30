@@ -1,8 +1,9 @@
 import {
   BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute,
   LinearMipmapLinearFilter, Mesh, MeshStandardNodeMaterial, RGBAFormat,
-  SRGBColorSpace, Vector2, Vector3,
+  SRGBColorSpace, Vector2, Vector3, type Texture,
 } from 'three/webgpu';
+import { atlasUV } from './foliage/AtlasLayout';
 import type { DetailTier } from './simulation/DepthComposition';
 import { cameraPosition, dot, mix, normalWorld, positionWorld, pow, texture, uniform } from 'three/tsl';
 
@@ -28,7 +29,7 @@ function noise(x: number, y: number): number {
   return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
 }
 
-function createTextures(pattern: number) {
+export function createTextures(pattern: number) {
   // Five reusable 512px surfaces, shared across depth tiers; generated once.
   const size = 512;
   const albedo = new Uint8ClampedArray(size * size * 4);
@@ -193,8 +194,10 @@ export function createGeometry(tier: DetailTier = 'high', formIndex = 0, seed = 
   return geometry;
 }
 
-export function createLeaf(sunDirection: Vector3, sunColor: Color) {
-  const surfaces = leafForms.map((_, index) => createTextures(index));
+export interface LeafAtlas { color: Texture; normal: Texture; surface: Texture }
+
+export function createLeaf(sunDirection: Vector3, sunColor: Color, atlas?: LeafAtlas) {
+  const surfaces = leafForms.map((_, index) => atlas ?? createTextures(index));
   const maps = surfaces[0];
   const material = new MeshStandardNodeMaterial({
     map: maps.color, normalMap: maps.normal, normalScale: new Vector2(0.65, 0.65),
@@ -242,6 +245,17 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color) {
     }),
   ])) as Record<DetailTier, { material: MeshStandardNodeMaterial; tint: Color }[]>;
   const geometryVariants = Object.fromEntries(tiers.map(tier => [tier, leafForms.map((_, index) => createGeometry(tier, index))])) as Record<DetailTier, BufferGeometry[]>;
+  if (atlas) {
+    for (const variants of Object.values(geometryVariants)) {
+      variants.forEach((geometry, index) => {
+        const uv = geometry.getAttribute('uv');
+        for (let i = 0; i < uv.count; i++) {
+          const [u, v] = atlasUV(index, uv.getX(i), uv.getY(i));
+          uv.setXY(i, u, v);
+        }
+      });
+    }
+  }
   const geometries = { high: geometryVariants.high[0], medium: geometryVariants.medium[0], low: geometryVariants.low[0] };
   const palette = palettes.high;
   const mesh = new Mesh(geometries.high, material);
@@ -252,7 +266,7 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color) {
       Object.values(geometryVariants).flat().forEach(geometry => geometry.dispose());
       material.dispose();
       Object.values(palettes).flat().forEach((variant) => variant.material.dispose());
-      surfaces.forEach(surface => Object.values(surface).forEach(map => map.dispose()));
+      new Set(surfaces.flatMap(surface => Object.values(surface))).forEach(map => map.dispose());
     },
   };
 }
