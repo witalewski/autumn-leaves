@@ -72,6 +72,15 @@ test('real CPU foliage batches preserve seeded transforms, count controls, and r
   camera.position.z = 16 * 0.65 / camera.aspect;
   system.setCameraBounds(camera);
   assert.deepEqual(snapshot(), beforeResize);
+  // Phase 7 presets change visible prefixes without resetting seeded shapes or motion.
+  const beforeQuality = snapshot(), beforeQualityShapes = shapeSnapshot();
+  for (const [count, populations] of [[70, [7, 28, 35]], [40, [4, 16, 20]], [100, [10, 40, 50]]]) {
+    config.leafCount = count;
+    system.configure();
+    assert.deepEqual(system.getPopulationCounts().map(p => p.count), populations);
+    assert.deepEqual(snapshot(), beforeQuality);
+    assert.deepEqual(shapeSnapshot(), beforeQualityShapes);
+  }
   config.leafCount = 20;
   system.configure();
   assert.equal(system.getPopulationCounts().reduce((sum, p) => sum + p.count, 0), 20);

@@ -1,6 +1,6 @@
 # Autumn — a study of motion
 
-Phases 1–6 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Production defaults to 32 visible leaves on both backends. Development uses 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
+Phases 1–7 of `specs.md`: a cinematic sky with GPU-simulated leaves arranged in foreground, midground, and background populations. Production starts at 32 visible leaves on both backends and adapts down to 20 under sustained load. Development uses 500 leaves on WebGPU and 100 on WebGL2. Geometry/material LOD and atmospheric haze give distant leaves a lower rendering cost and clearer depth separation.
 
 ## Run
 
@@ -83,7 +83,7 @@ The fixed camera looks along -Z. Population bounds derive from camera position, 
 
 All fifteen foliage batches are conservatively drawn because GPU transforms have no CPU bounding sphere. Full WebGPU foliage costs 12,800 triangles versus 22,000 with the former geometry at 500 leaves (about 42% fewer). Foliage uses fifteen draw batches. WebGL2 uses the same composition proportions with a smaller CPU pool and 2,560 foliage triangles.
 
-The default mix is 10% foreground, 40% midground, and 50% background. Production shows 32 leaves distributed as 3 foreground, 13 midground, and 16 background; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Adaptive quality, compressed assets, scanned foliage assets, and final artistic tuning remain later phases.
+The default mix is 10% foreground, 40% midground, and 50% background. Production shows 32 leaves distributed as 3 foreground, 13 midground, and 16 background; the fixed backend pool capacities remain unchanged. The development controls can reduce visible counts without rebuilding pools. Compressed assets, scanned foliage assets, and final artistic tuning remain later phases.
 
 ## Phase 6 cinematic post
 
@@ -95,6 +95,24 @@ The **Cinematic post** development folder offers a before/after toggle, bloom th
 
 Flare follows the projected directional sun, fades at the screen edge, and disappears behind the camera. Five depth samples across the source suppress flare under leaf occlusion; this is an inexpensive approximation, not volumetric cloud occlusion. Monochrome grain uses a small, seeded noise texture generated once with an integer PRNG. Randomly positioned, overlapping grains with varied radii create fine speckles and irregular clumps. Two filtered layers mix fine detail with weaker coarse texture, using a stable CSS-pixel scale across DPR/render-scale changes. The default strength is 0.006 in development and production, aiming for the character of a scanned 35mm–16mm reference. Independent texture offsets refresh at 24 Hz without scrolling. Grain is applied in display space after color conversion, with reduced intensity in extreme highlights and shadows. Pausing freezes grain as well as leaves; reduced motion keeps grain static. The comparison toggle bypasses all post effects while retaining the original renderer's ACES exposure.
 
+## Phase 7 adaptive quality
+
+Both backends start at **High** and measure actual animation-frame intervals, independently of the clamped simulation delta. `quality/PerformanceMonitor.ts` keeps a bounded rolling window of roughly two seconds without frame-loop allocations. `quality/QualityController.ts` waits three seconds at startup/resume, then lowers quality after three sustained seconds above 130% of the target frame budget. Recovery needs twelve seconds below 105% of the budget. Each change has an eight-second cooldown and clears old samples. An isolated stall does not trigger a downgrade; intervals over one second reset monitoring as suspension gaps. Hidden-page transitions clear the history. Paused/reduced-motion rendering still measures actual rendering performance.
+
+| Preset | Render scale | DPR cap | Development leaves (GPU / GL2) | Production leaves |
+| --- | --- | --- | --- | --- |
+| High | 1.0 | 1.75 | 500 / 100 | 32 |
+| Medium | 0.8 | 1.5 | 350 / 70 | 22 |
+| Low | 0.65 | 1.25 | 200 / 40 | 20 |
+
+Effective pixel ratio is `min(devicePixelRatio, dprCap) * renderScale`. Presets retain the established composition and material tiers; visible counts change within the existing fixed pools without resetting positions, seed, or clocks. The foreground/midground/background mix remains proportional. The GPU pool continues simulating all slots so restored leaves retain coherent motion; adaptation reduces draw work and pixel cost, not GPU compute capacity. CPU simulation already steps only the active prefix. Bloom and the HDR scene target follow the reduced drawing-buffer resolution automatically; grain stays enabled and keeps its CSS-pixel size.
+
+The development **Renderer** folder offers Auto/High/Medium/Low and a 30/60 FPS target (default 60). Fixed presets stop adaptation. Editing leaf count, render scale, or DPR switches to fixed mode so automatic changes do not overwrite manual tuning. Select Auto to resume monitoring at the current level. Reset restores High/Auto and the original scene budget. The overlay reports active quality, target, rolling frame time, and controller status. These are CPU frame intervals including presentation waits, not GPU timings; a stable 30 Hz display may select Low at the default 60 FPS target. The 30 FPS option supports profiling that cadence without device-type assumptions.
+
+For an end-to-end load check, open `/tests/quality.html` (or append `?backend=webgl`) in the development server. **Add 40 ms frame load** introduces intentional CPU pressure into the real scene. Auto should move High → Medium → Low over roughly 17 seconds. Stop the load and allow roughly 30 seconds for full recovery on a 60 Hz display. This harness is excluded from production. Unit tests cover 30/60 FPS traces, rolling-window expiry, cooldown, asymmetric recovery, isolated stalls, jitter, fixed mode, suspension, and production count limits.
+
+Local browser checks cover desktop WebGPU, portrait WebGL2, fixed presets, and automatic transitions under synthetic load. These checks do not establish sustained performance or thermal behavior on a physical mid-range smartphone. For device profiling, run the production scene on physical desktop/mobile hardware, watch the development overlay if available, and verify stable frame times after several minutes, resizing/orientation changes, hide/resume, and reduced motion.
+
 ## Verification
 
 `npm test` also checks population capacity/assignment, frustum projection at landscape/portrait aspect ratios and zoom, clipping, seeded depth replay, offscreen recycling in both wind directions, finite depth state through two simulated minutes of extreme controls, geometry LOD, distinct seeded forms with recomputed normals, shared per-tier surface textures, real CPU batch transforms/count controls, resize/pause behavior, and geometry/material disposal.
@@ -103,6 +121,6 @@ Flare follows the projected directional sun, fades at the screen edge, and disap
 
 For GPU integration checks, run the dev server and open `/tests/gpu.html` in a WebGPU browser. This development-only harness compares 500 initial matrices and 120 integration steps against the CPU reference, checks reset replay and recycling, and exercises extreme controls for five simulated seconds. It also checks all three depth populations against the CPU reference, verifies offscreen recycling into the correct depth band, and stresses each GPU population after a portrait resize. Readback exists only in that test. The test page is not included in the production build. GPU and CPU respawn random sequences intentionally differ, and different GPUs are not guaranteed bit-identical floating-point results.
 
-The phase 5 scene has been checked locally in WebGPU and forced WebGL2, including a portrait viewport. Both rendered around 60 FPS in the local browser with no shader warnings/errors; these are CPU frame intervals, not GPU timings. The GPU regression harness passed all depth checks (maximum CPU/GPU position difference below 0.00003 over 120 steps for non-recycled depth leaves). These checks do not establish performance on physical mobile devices; adaptive quality and representative-device profiling remain phase 7 work.
+The phase 5 scene has been checked locally in WebGPU and forced WebGL2, including a portrait viewport. Both rendered around 60 FPS in the local browser with no shader warnings/errors; these are CPU frame intervals, not GPU timings. The GPU regression harness passed all depth checks (maximum CPU/GPU position difference below 0.00003 over 120 steps for non-recycled depth leaves). These checks do not establish performance on physical mobile devices; representative-device profiling still requires physical mobile hardware.
 
 The development-only `/tests/post.html` harness checks actual rendered grain strength, animation, pause, and reduced motion at DPR 1 and 1.75; append `?webgl` for WebGL2. It displays maximum-strength samples.

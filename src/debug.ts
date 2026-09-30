@@ -1,9 +1,10 @@
 import GUI from 'lil-gui';
 import type { WebGPURenderer } from 'three/webgpu';
 import type { createLeafSystem } from './LeafSystem';
+import type { QualityController } from './quality/QualityController';
 import type { Settings } from './main';
 
-export function createDebug(settings: Settings, renderer: WebGPURenderer, backend: string, apply: () => void, resize: () => void, restart: () => void, foliage: ReturnType<typeof createLeafSystem>) {
+export function createDebug(settings: Settings, renderer: WebGPURenderer, backend: string, apply: () => void, resize: () => void, restart: () => void, foliage: ReturnType<typeof createLeafSystem>, quality: QualityController) {
   const defaults = { ...settings };
   const populationDefaults = structuredClone(foliage.controls);
   const gui = new GUI({ title: 'Instanced motion study', width: 260 });
@@ -23,7 +24,7 @@ export function createDebug(settings: Settings, renderer: WebGPURenderer, backen
   material.addColor(settings, 'leafColor').name('Albedo tint');
   const motion = gui.addFolder(backend === 'WebGPU' ? 'GPU compute motion' : 'CPU fallback motion');
   motion.add(settings, 'running').name('Run simulation').listen();
-  motion.add(settings, 'leafCount', 20, foliage.capacity, 1).name('Leaves');
+  motion.add(settings, 'leafCount', 20, foliage.capacity, 1).name('Leaves').listen().onChange(() => { settings.qualityMode = quality.level; quality.setMode(quality.level); });
   motion.add(settings, 'seed', 0, 65535, 1).name('Seed').onFinishChange(restart);
   motion.add(settings, 'windDirection', -180, 180, 1).name('Wind direction (°)');
   motion.add(settings, 'windSpeed', 0, 5, 0.05).name('Wind speed');
@@ -77,12 +78,14 @@ export function createDebug(settings: Settings, renderer: WebGPURenderer, backen
   post.add(settings, 'grainStrength', 0, 0.06, 0.001).name('Film grain');
   post.close();
   const view = gui.addFolder('Renderer');
+  view.add(settings, 'qualityMode', ['Auto', 'High', 'Medium', 'Low']).name('Quality').listen();
+  view.add(settings, 'targetFps', [30, 60]).name('Target FPS');
   view.add(settings, 'exposure', 0.3, 2, 0.01).name('Exposure');
-  view.add(settings, 'renderScale', 0.5, 1, 0.05).name('Render scale').onChange(resize);
-  view.add(settings, 'dprCap', 1, 2, 0.25).name('DPR cap').onChange(resize);
+  view.add(settings, 'renderScale', 0.5, 1, 0.05).name('Render scale').listen().onChange(() => { settings.qualityMode = quality.level; quality.setMode(quality.level); resize(); });
+  view.add(settings, 'dprCap', 1, 2, 0.25).name('DPR cap').listen().onChange(() => { settings.qualityMode = quality.level; quality.setMode(quality.level); resize(); });
   view.close();
   const actions = {
-    reset() { Object.assign(settings, defaults); foliage.controls.forEach((p, i) => { const d = populationDefaults[i]; p.visible = d.visible; p.activeCount = d.activeCount; Object.assign(p.depth, d.depth); Object.assign(p.scale, d.scale); }); gui.controllersRecursive().forEach((c) => c.updateDisplay()); resize(); restart(); apply(); },
+    reset() { quality.level = 'High'; quality.setMode('Auto'); Object.assign(settings, defaults); foliage.controls.forEach((p, i) => { const d = populationDefaults[i]; p.visible = d.visible; p.activeCount = d.activeCount; Object.assign(p.depth, d.depth); Object.assign(p.scale, d.scale); }); gui.controllersRecursive().forEach((c) => c.updateDisplay()); resize(); restart(); apply(); },
     export() {
       const url = URL.createObjectURL(new Blob([JSON.stringify({ ...settings, populations: foliage.controls }, null, 2)], { type: 'application/json' }));
       const link = document.createElement('a');
@@ -104,7 +107,7 @@ export function createDebug(settings: Settings, renderer: WebGPURenderer, backen
     update(fps: number, ms: number) {
       const counts = foliage.getPopulationCounts();
       const visible = counts.reduce((sum, p) => sum + p.count, 0);
-      overlay.textContent = `${backend}  ${fps.toFixed(0)} FPS  ${ms.toFixed(1)} ms\n${visible} leaves · ${backend === 'WebGPU' ? 'GPU compute' : 'CPU fallback'} · ${renderer.info.render.drawCalls} draws · ${renderer.info.render.triangles} tris\n${counts.map(p => `${p.id}: ${p.count}`).join(' · ')}\nScale ${settings.renderScale.toFixed(2)} · DPR ${renderer.getPixelRatio().toFixed(2)}`;
+      overlay.textContent = `${backend}  ${fps.toFixed(0)} FPS  ${ms.toFixed(1)} ms\n${visible} leaves · ${backend === 'WebGPU' ? 'GPU compute' : 'CPU fallback'} · ${renderer.info.render.drawCalls} draws · ${renderer.info.render.triangles} tris\n${counts.map(p => `${p.id}: ${p.count}`).join(' · ')}\n${settings.qualityMode} · ${quality.level} · ${quality.targetFps} FPS target · ${quality.reason}\nRolling ${quality.monitor.meanMs.toFixed(1)} ms · Scale ${settings.renderScale.toFixed(2)} · DPR ${renderer.getPixelRatio().toFixed(2)}`;
     },
     destroy() { gui.destroy(); overlay.remove(); },
   };

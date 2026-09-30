@@ -6,6 +6,8 @@ import { createSky } from './sky';
 import { createLeafSystem } from './LeafSystem';
 import { cinematicDefaults, createCinematicPost } from './scene/CinematicPost';
 import { createAtmosphere } from './scene/Atmosphere';
+import { QualityController } from './quality/QualityController';
+import { qualityValues, type QualityMode } from './quality/QualityPresets';
 import { motionDefaults } from './simulation/MotionSimulation';
 
 export const settings = {
@@ -15,7 +17,7 @@ export const settings = {
   depthHazeStart: 18, depthHazeFalloff: 0.035, depthHazeStrength: 0.65,
   ...motionDefaults,
   ...cinematicDefaults,
-  renderScale: 1, dprCap: 1.75,
+  renderScale: 1, dprCap: 1.75, qualityMode: 'Auto' as QualityMode, targetFps: 60,
 };
 export type Settings = typeof settings;
 
@@ -60,6 +62,8 @@ async function start() {
   const sky = createSky(sunDirection, sunColor, settings.seed);
   const gpu = capabilities.backend === 'WebGPU';
   settings.leafCount = import.meta.env.DEV ? (gpu ? 500 : 100) : motionDefaults.leafCount;
+  const leafBudget = settings.leafCount;
+  const quality = new QualityController();
   const foliage = createLeafSystem(leaf, settings, renderer, gpu);
   scene.add(...foliage.meshes);
   scene.add(sky.mesh, sun, ambient);
@@ -85,7 +89,21 @@ async function start() {
     foliage.setCameraBounds(camera);
   }
 
+  function applyQuality() {
+    Object.assign(settings, qualityValues(quality.level, leafBudget));
+    foliage.configure();
+    resize();
+  }
+
   function applySettings() {
+    if (quality.mode !== settings.qualityMode) {
+      quality.setMode(settings.qualityMode);
+      applyQuality();
+    }
+    if (quality.targetFps !== settings.targetFps) {
+      quality.targetFps = settings.targetFps;
+      quality.reset();
+    }
     const azimuth = MathUtils.degToRad(settings.sunAzimuth);
     const elevation = MathUtils.degToRad(settings.sunElevation);
     sunDirection.set(Math.sin(azimuth) * Math.cos(elevation), Math.sin(elevation), -Math.cos(azimuth) * Math.cos(elevation));
@@ -167,6 +185,7 @@ async function start() {
       sampleFrames = 0;
       sampleTime = 0;
     }
+    if (elapsed > 0 && quality.record(elapsed * 1000)) applyQuality();
     request = requestAnimationFrame(frame);
   }
 
@@ -178,6 +197,7 @@ async function start() {
     lastTime = 0;
     sampleFrames = 0;
     sampleTime = 0;
+    quality.reset();
     if (ready && !document.hidden && !failed) request = requestAnimationFrame(frame);
   }, events);
 
@@ -204,7 +224,7 @@ async function start() {
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { foliage.reset(); sky.reset(settings.seed); }, foliage);
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { foliage.reset(); sky.reset(settings.seed); }, foliage, quality);
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;
