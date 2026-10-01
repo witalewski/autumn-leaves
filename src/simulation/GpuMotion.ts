@@ -14,6 +14,7 @@ export function createGpuMotion(capacity: number) {
   const projection = uniform(new Vector4(16, 1, 1, 1));
   const center = uniform(new Vector2());
   const wind = uniform(new Vector2(1.35, 15 * Math.PI / 180));
+  const gestureWind = uniform(new Vector2());
   const gust = uniform(1.3), turbulence = uniform(0.45), gravity = uniform(1.6);
   const drag = uniform(1.15), lift = uniform(0.65), tumble = uniform(0.75);
   const flutter = uniform(0.38), damping = uniform(1.75);
@@ -45,6 +46,7 @@ export function createGpuMotion(capacity: number) {
       turbulence.mul(cos(x.mul(0.61).sub(time.mul(0.53)).add(y.mul(0.39)))),
     ).toVar();
     air.addAssign(vec3(sin(y.mul(2.3).add(time.mul(2.1))), cos(x.mul(2.1).sub(time.mul(1.7))), sin(z.mul(2.7).add(time.mul(1.9)))).mul(turbulence).mul(0.12));
+    air.addAssign(vec3(gestureWind, 0));
     air.subAssign(v);
     const speed = length(air).toVar();
     const flow = air.div(max(speed, 0.0001)).toVar();
@@ -134,6 +136,7 @@ export function createGpuMotion(capacity: number) {
       tumble.value = config.tumble; flutter.value = config.flutter; damping.value = config.angularDamping;
     },
     setTime(seconds: number, step: number) { time.value = seconds; dt.value = step; },
+    setGestureWind(x: number, y: number) { gestureWind.value.set(x, y); },
     seed(index: number, leaf: LeafState, scale: readonly number[]) {
       const offset = index * 4;
       position.value.array.set([...leaf.position.toArray(), 0], offset);

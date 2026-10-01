@@ -56,6 +56,25 @@ async function run() {
   cpu.reset(); upload(); gpu.setTime(0, 0); renderer.compute(gpu.kernel);
   const replay = new Float32Array(await renderer.getArrayBufferAsync(gpu.matrices));
   assert(replay.every((value, i) => value === initial[i]), 'Reset restores the same GPU transforms exactly');
+  for (let step = 1; step <= 120; step++) {
+    const angle = step / 120 * Math.PI * 2;
+    const x = Math.cos(angle) * 4, y = Math.sin(angle) * 4;
+    cpu.gestureWind.set(x, y, 0);
+    gpu.setGestureWind(x, y);
+    cpu.update(1 / 120);
+    gpu.setTime(step / 120, 1 / 120);
+    renderer.compute(gpu.kernel);
+  }
+  const stirred = new Float32Array(await renderer.getArrayBufferAsync(gpu.matrices));
+  let gestureError = 0, gestureCompared = 0;
+  cpu.leaves.forEach((leaf, i) => {
+    if (Math.abs(leaf.position.x) > 95 || Math.abs(leaf.position.y) > 95) return;
+    expected.compose(leaf.position, leaf.rotation, scale);
+    expected.elements.forEach((value, j) => { gestureError = Math.max(gestureError, Math.abs(value - stirred[i * 16 + j])); });
+    gestureCompared++;
+  });
+  assert(gestureCompared > 400 && gestureError < 0.005, `Turning gesture wind agrees on CPU and GPU (${gestureCompared} leaves, error ${gestureError.toExponential(2)})`);
+  gpu.setGestureWind(0, 0);
   cpu.leaves[0].position.set(103, 0, -1);
   upload(); gpu.setTime(0, 0); renderer.compute(gpu.kernel);
   const recycled = new Float32Array(await renderer.getArrayBufferAsync(gpu.buffers[0].value));

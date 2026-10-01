@@ -39,6 +39,7 @@ This follows [Vite's relative-base support](https://vite.dev/guide/build#relativ
 ## Inspect the motion
 
 - Space or a canvas tap/click pauses/resumes the simulation. The hint reads “Tap” for a coarse primary pointer (touch devices) and “Space” for desktop pointers; both inputs always work.
+- Swipe or drag across the canvas to stir a temporary gust. Faster motion adds stronger wind; longer strokes linger longer. Curves and circles steer the wind as the pointer turns. Gusts ease back into the ambient breeze without trails, markers, or additional interface cues. Drags do not toggle pause. Reduced motion softens the response, and paused scenes ignore gusts.
 - The development panel exposes motion, lighting, and material controls. **Depth composition** adds per-population visibility/counts, world-space depth and scale ranges, plus haze start/falloff/strength. Finishing a depth/scale edit restarts the same seed; count and visibility edits do not. Counts are limited by each fixed pool and the global leaf-count limit. Reducing the global count retains a mixture of depth groups.
 - **Restart same seed** restores the initial population without changing controls. **Reset study** restores default controls and restarts. **Export parameters** downloads the current configuration as JSON.
 - The default seed is 2409. Append `?seed=42` for another repeatable population. Repeatability assumes the same viewport, controls, and simulation time.
@@ -48,6 +49,7 @@ This follows [Vite's relative-base support](https://vite.dev/guide/build#relativ
 ## Implementation
 
 - `main.ts`: scene, lighting, camera drift, input, sizing, and lifecycle.
+- `interaction/GestureWind.ts`: captured touch/mouse/pen drags, tap discrimination, viewport-relative speed and stroke length, smooth direction tracking, and bounded gust decay. One shared vector feeds both simulation backends without particle uploads or readbacks.
 - `LeafSystem.ts`: fifteen population/palette batches, stable instance-slot mapping, seeded scales, backend selection, timing, and resource ownership.
 - `simulation/GpuMotion.ts`: TSL compute kernel updating GPU-resident position, velocity, quaternion, angular velocity, and instance-matrix buffers. Mass, drag, lift, flutter phase/frequency, and visual scale live in storage buffers too.
 - `simulation/MotionSimulation.ts`: seeded fixed-size state pool, spatial/time-varying wind, and CPU integration at 120 Hz. Gravity, orientation-dependent drag, perpendicular lift, aerodynamic alignment, asymmetric tumble, flutter, and angular damping drive velocity and quaternion orientation. Parameters vary per leaf. Scratch vectors are reused.

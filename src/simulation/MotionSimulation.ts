@@ -57,6 +57,7 @@ export class MotionSimulation {
   private readonly liftDirection = new Vector3();
   private readonly torque = new Vector3();
   private readonly increment = new Quaternion();
+  readonly gestureWind = new Vector3();
 
   constructor(readonly config: MotionConfig, capacity = 50, populations: readonly PopulationConfig[] = []) {
     if (populations.length && (populations.some(p => !Number.isInteger(p.count) || p.count < 0)
@@ -103,6 +104,7 @@ export class MotionSimulation {
   reset() {
     this.randomState = this.config.seed >>> 0;
     this.time = this.accumulator = this.recycled = 0;
+    this.gestureWind.set(0, 0, 0);
     for (const leaf of this.leaves) this.spawn(leaf, true);
   }
 
@@ -151,7 +153,7 @@ export class MotionSimulation {
       const leaf = this.leaves[i];
       const bounds = leaf.population === null ? undefined : this.populationBounds.get(leaf.population);
       this.normal.set(0, 0, 1).applyQuaternion(leaf.rotation);
-      sampleWind(leaf.position, this.time, c, this.air).sub(leaf.velocity);
+      sampleWind(leaf.position, this.time, c, this.air).add(this.gestureWind).sub(leaf.velocity);
       const speed = this.air.length();
       this.flow.copy(this.air).multiplyScalar(1 / Math.max(speed, 0.0001));
       const incidence = this.normal.dot(this.flow);

@@ -95,13 +95,17 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
       batches[slot.batchIndex].compute?.seed(slot.index, initial.leaves[i], scales[i].toArray());
     }
     if (gpu) {
-      for (const batch of batches) { batch.compute!.upload(); batch.compute!.setTime(0, 0); }
+      for (const batch of batches) { batch.compute!.upload(); batch.compute!.setTime(0, 0); batch.compute!.setGestureWind(0, 0); }
       renderer.compute(kernels);
     } else syncCpu();
   }
   return {
     meshes, capacity, populations, populationBounds, controls,
     configure, setCameraBounds, reset,
+    setGestureWind(x: number, y: number) {
+      initial.gestureWind.set(x, y, 0);
+      for (const batch of batches) batch.compute?.setGestureWind(x, y);
+    },
     getPopulationCounts() {
       return controls.map((control, index) => ({ id: control.id, count: control.visible ? batches.filter(b => b.populationIndex === index).reduce((sum, b) => sum + b.mesh.count, 0) : 0 }));
     },

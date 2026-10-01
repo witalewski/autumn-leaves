@@ -12,6 +12,7 @@ import { createAtmosphere } from './scene/Atmosphere';
 import { QualityController } from './quality/QualityController';
 import { qualityValues, type QualityMode } from './quality/QualityPresets';
 import { motionDefaults } from './simulation/MotionSimulation';
+import { createGestureInput, GestureWind } from './interaction/GestureWind';
 
 export const settings = {
   sunAzimuth: 15, sunElevation: 10, sunIntensity: 3.0, sunColor: '#fff0d8', skyIntensity: 1.25,
@@ -86,6 +87,8 @@ async function start() {
   const post = createCinematicPost(renderer, scene, camera, settings, sunDirection);
   const abort = new AbortController();
   const events = { signal: abort.signal };
+  const gestureWind = new GestureWind();
+  const gestureInput = createGestureInput(canvas, gestureWind, abort.signal, () => settings.running);
   let failed = false;
   let ready = false;
   let request = 0;
@@ -167,13 +170,13 @@ async function start() {
   }
   function toggleMotion() {
     settings.running = !settings.running;
+    gestureInput.reset();
     applySettings();
   }
   touchInput.addEventListener('change', updateInteractionHint, events);
-  // A canvas click covers touch taps and mouse clicks; controls outside the
-  // canvas keep their own behavior. Native click recognition excludes scrolling.
+  // Pointer gestures can synthesize clicks, so only stationary taps toggle pause.
   canvas.addEventListener('click', (event) => {
-    if (event.button === 0) toggleMotion();
+    if (event.button === 0 && !gestureInput.consumeClick()) toggleMotion();
   }, events);
 
   window.addEventListener('keydown', (event) => {
@@ -189,6 +192,10 @@ async function start() {
     const dt = Math.min(elapsed, 0.05);
     lastTime = now;
     try {
+      if (!settings.running) gestureWind.reset();
+      // Gusts expire in real time even when leaf simulation time is slowed.
+      gestureWind.update(elapsed, motion.matches);
+      foliage.setGestureWind(gestureWind.velocity.x, gestureWind.velocity.y);
       cameraMotion.update(dt, settings.running, motion.matches);
       foliage.update(dt, motion.matches);
       sky.update(dt, motion.matches, settings);
@@ -211,6 +218,7 @@ async function start() {
   window.addEventListener('resize', resize, events);
   document.addEventListener('visibilitychange', () => {
     cancelAnimationFrame(request);
+    gestureInput.reset();
     lastTime = 0;
     sampleFrames = 0;
     sampleTime = 0;
@@ -241,7 +249,7 @@ async function start() {
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { foliage.reset(); sky.reset(settings.seed); cameraMotion.reset(); }, foliage, quality);
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { gestureInput.reset(); foliage.reset(); sky.reset(settings.seed); cameraMotion.reset(); }, foliage, quality);
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;
