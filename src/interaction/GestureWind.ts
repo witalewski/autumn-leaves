@@ -7,6 +7,8 @@ export class GestureWind {
   private remaining = 0;
   private duration = 0;
 
+  constructor(private readonly prevailingWind = { windDirection: 0, windSpeed: 0, gustStrength: 0 }) {}
+
   begin() { this.path = 0; }
 
   move(dx: number, dy: number, seconds: number, viewportSize: number) {
@@ -17,7 +19,13 @@ export class GestureWind {
     // Speed is measured in short viewport lengths per second, independent of DPR.
     // A soft cap keeps even a very fast flick within the scene's mellow range.
     const speed = distance / viewportSize / Math.max(seconds, 1 / 240);
-    const strength = 6 * (1 - Math.exp(-speed / 1.15));
+    const angle = this.prevailingWind.windDirection * Math.PI / 180;
+    const alignment = (dx * Math.cos(angle) - dy * Math.sin(angle)) / distance;
+    // Only user impulses receive this boost. Fade it in with opposition, up to
+    // 50% for a stroke directly against the prevailing breeze; calm air needs none.
+    const opposition = this.prevailingWind.windSpeed > 0 || this.prevailingWind.gustStrength > 0
+      ? Math.max(0, -alignment) : 0;
+    const strength = 6 * (1 - Math.exp(-speed / 1.15)) * (1 + 0.5 * opposition);
     const blend = this.remaining > 0 ? 1 - Math.exp(-seconds / 0.035) : 1;
     this.targetX += (dx / distance * strength - this.targetX) * blend;
     // Screen Y points down; world Y points up.

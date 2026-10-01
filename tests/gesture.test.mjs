@@ -3,11 +3,48 @@ import test from 'node:test';
 import { sourceModule } from '../scripts/modules.mjs';
 
 const { GestureWind, createGestureInput } = await sourceModule('interaction/GestureWind');
-const { MotionSimulation, motionDefaults } = await sourceModule('simulation/MotionSimulation');
+const { MotionSimulation, motionDefaults, sampleWind } = await sourceModule('simulation/MotionSimulation');
 const advance = (wind, seconds, reduced = false) => {
   for (let i = 0; i < Math.round(seconds * 120); i++) wind.update(1 / 120, reduced);
 };
 const magnitude = wind => Math.hypot(wind.velocity.x, wind.velocity.y);
+
+test('only opposing user gusts receive a gradual boost in any prevailing direction', () => {
+  const prevailing = { ...motionDefaults };
+  const wind = new GestureWind(prevailing);
+  const stroke = (angle, config = prevailing) => {
+    const gesture = config === prevailing ? wind : new GestureWind(config);
+    gesture.reset();
+    gesture.move(Math.cos(angle) * 160, -Math.sin(angle) * 160, 0.1, 800);
+    advance(gesture, 0.08);
+    return magnitude(gesture);
+  };
+  for (const degrees of [0, 35, 90, 180, 270]) {
+    prevailing.windDirection = degrees; // The existing controller reads live settings.
+    const angle = degrees * Math.PI / 180;
+    const following = stroke(angle);
+    const crosswind = stroke(angle + Math.PI / 2);
+    const diagonal = stroke(angle + Math.PI * 0.75);
+    const opposing = stroke(angle + Math.PI);
+    assert.ok(Math.abs(crosswind / following - 1) < 1e-12);
+    assert.ok(diagonal > following && diagonal < opposing);
+    assert.ok(Math.abs(opposing / following - 1.5) < 1e-12);
+    const calm = stroke(angle + Math.PI, { ...prevailing, windSpeed: 0, gustStrength: 0 });
+    assert.ok(Math.abs(calm - following) < 1e-12);
+    const gustOnly = stroke(angle + Math.PI, { ...prevailing, windSpeed: 0 });
+    assert.ok(Math.abs(gustOnly - opposing) < 1e-12);
+  }
+  const simulation = new MotionSimulation(prevailing);
+  const point = simulation.leaves[0].position;
+  const ambient = sampleWind(point, 2, prevailing, point.clone());
+  const originalConfig = { ...prevailing };
+  stroke(Math.PI);
+  simulation.gestureWind.set(wind.velocity.x, wind.velocity.y, 0);
+  assert.deepEqual(prevailing, originalConfig);
+  assert.deepEqual(sampleWind(point, 2, prevailing, point.clone()), ambient, 'ambient wind is independent of user amplification');
+  advance(wind, 3);
+  assert.equal(magnitude(wind), 0);
+});
 
 test('speed controls strength, length controls lifetime, and viewport scaling preserves response', () => {
   const slow = new GestureWind(), fast = new GestureWind(), scaled = new GestureWind();

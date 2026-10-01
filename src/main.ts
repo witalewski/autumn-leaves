@@ -87,7 +87,7 @@ async function start() {
   const post = createCinematicPost(renderer, scene, camera, settings, sunDirection);
   const abort = new AbortController();
   const events = { signal: abort.signal };
-  const gestureWind = new GestureWind();
+  const gestureWind = new GestureWind(settings);
   const gestureInput = createGestureInput(canvas, gestureWind, abort.signal, () => settings.running);
   let failed = false;
   let ready = false;
