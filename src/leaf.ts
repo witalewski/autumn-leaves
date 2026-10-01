@@ -1,9 +1,9 @@
 import {
   BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute,
   LinearMipmapLinearFilter, Mesh, MeshStandardNodeMaterial, RGBAFormat,
-  SRGBColorSpace, Vector2, Vector3, type Texture,
+  SRGBColorSpace, Vector2, Vector3,
 } from 'three/webgpu';
-import { atlasUV } from './foliage/AtlasLayout';
+import { createSurfaceData } from './foliage/ProceduralSurfaces';
 import type { DetailTier } from './simulation/DepthComposition';
 import { cameraPosition, dot, mix, normalWorld, positionWorld, pow, texture, uniform } from 'three/tsl';
 
@@ -19,113 +19,22 @@ function hash(x: number, y: number): number {
   return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
 }
 
-function noise(x: number, y: number): number {
-  const ix = Math.floor(x), iy = Math.floor(y);
-  let fx = x - ix, fy = y - iy;
-  fx = fx * fx * (3 - 2 * fx);
-  fy = fy * fy * (3 - 2 * fy);
-  const a = hash(ix, iy), b = hash(ix + 1, iy);
-  const c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
-  return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
+export function createTextures(pattern: number, size = 256) {
+  return createTexturesFromData(createSurfaceData(pattern, size));
 }
 
-export function createTextures(pattern: number) {
-  // Five reusable 512px surfaces, shared across depth tiers; generated once.
-  const size = 512;
-  const albedo = new Uint8ClampedArray(size * size * 4);
-  const surface = new Uint8Array(albedo.length);
-  const normals = new Uint8Array(albedo.length);
-  const heights = new Float32Array(size * size);
-  const baseColor = [[225, 172, 46], [220, 133, 35], [202, 115, 44], [174, 73, 36], [158, 154, 53]][pattern];
-  const stainColor = [[164, 69, 27], [144, 35, 25], [109, 58, 29], [226, 157, 41], [219, 143, 36]][pattern];
-  const detailWeights = [1, 0.7, 0.35], veinWeights = [14, 18, 7], burnWeights = [36, 30, 12];
-
-  for (let row = 0; row < size; row++) {
-    const t = row / (size - 1);
-    for (let col = 0; col < size; col++) {
-      const x = col / (size - 1) - 0.5;
-      const ax = Math.abs(x);
-      const p = (row * size + col) * 4;
-      const broad = noise(x * 12 + 40 + pattern * 17, t * 9 + pattern * 5);
-      const medium = noise(x * 55 + 40 + pattern * 11, t * 65);
-      const fine = noise(x * 240 + 40, t * 290);
-      const width = halfWidth(t);
-      const teeth = 0.955 + 0.045 * Math.abs(Math.sin(t * 31 * Math.PI + (x > 0 ? 0.6 : 0)));
-      const stem = t < 0.125 && ax < 0.0075 * (1 - 0.4 * t);
-      const edge = width * teeth - ax;
-      const alpha = stem ? 255 : Math.max(0, Math.min(255, edge * size * 255));
-
-      // Paired, gently curving secondary veins, then fine branching veinlets.
-      const branchCoordinate = t - ax * 0.74 - ax * ax * 0.8 + (x > 0 ? 0.018 : 0);
-      const branchDistance = Math.abs((branchCoordinate + 0.041) % 0.082 - 0.041);
-      const midrib = Math.exp(-ax * ax / 0.000018);
-      const vein = Math.exp(-branchDistance * branchDistance / 0.000009) * Math.min(1, ax * 60);
-      const fineDistance = Math.abs(Math.sin((t + ax * 0.7 + medium * 0.009) * 390));
-      const veinlets = Math.pow(1 - fineDistance, 13) * 0.12;
-      const veins = Math.min(1, midrib + vein * 0.6 + veinlets);
-      const rim = Math.exp(-Math.max(0, edge) * 170);
-      const spot = Math.max(0, noise(x * 130, t * 150) - 0.8) * 1.5;
-      // Warp the red/gold pigment field off the texture grid. Independent,
-      // signed coordinates keep patches from mirroring across the midrib;
-      // overlapping scales break up the former rounded gold islands.
-      const redWarpX = pattern === 1 ? noise(x * 5.7 + 83.2, t * 4.3 + 17.6) - 0.5 : 0;
-      const redWarpY = pattern === 1 ? noise(x * 4.1 + 31.8, t * 6.2 + 61.3) - 0.5 : 0;
-      const patch = pattern === 1
-        ? noise(x * 5.1 + t * 2.7 + redWarpX * 1.7 + 91.4, t * 4.6 - x * 3.2 + redWarpY * 1.5 + 23.8) * 0.7
-          + noise(x * 15.3 + redWarpY * 2 + 8.7, t * 13.1 + redWarpX * 2 + 47.2) * 0.3
-        : noise(x * 6 + pattern * 19, t * 5 + pattern * 7);
-      const stain = Math.max(0, Math.min(1, (patch - 0.36) * 3.5));
-      const edgeBurn = Math.min(1, rim * (0.3 + medium * 0.7));
-      // Organic pigment fields retain distinct autumn palettes. Their albedo
-      // range is compressed below so each leaf has closely related shades.
-      const pigment = pattern === 0 ? stain * 0.5
-        : pattern === 1 ? Math.max(0, Math.min(1, (patch - 0.28) * 2.5 + redWarpY * 0.22))
-        : pattern === 2 ? Math.min(1, stain * 0.55 + edgeBurn * 0.6)
-        : pattern === 3 ? Math.min(1, stain * 0.7 + (x > 0 ? 0.22 : 0))
-        : Math.max(0, Math.min(1, (patch - 0.42) * 5 + t * 0.5));
-      // Keep each palette's overall hue while reducing the difference between
-      // its light and dark pigment patches to one fifth of the former range.
-      const pigmentCenter = [0.2, 0.55, 0.3, 0.4, 0.5][pattern];
-      const colorPigment = pigmentCenter + (pigment - pigmentCenter) * 0.2;
-      const freckles = Math.max(0, noise(x * 72 + pattern * 13, t * 90) - 0.67) * 2.2;
-      const russet = Math.min(1, pigment * 0.6 + edgeBurn * 0.4);
-      const detail = (broad - 0.5) * 10 + (medium - 0.5) * 22 + (fine - 0.5) * 12 - spot * 80 - freckles * 60;
-      for (let channel = 0; channel < 3; channel++) {
-        albedo[p + channel] = baseColor[channel] + (stainColor[channel] - baseColor[channel]) * colorPigment
-          + detail * detailWeights[channel] + veins * veinWeights[channel] - edgeBurn * burnWeights[channel];
-      }
-      albedo[p + 3] = alpha;
-      // R: optical thickness, G: roughness. Kept linear, never sRGB.
-      surface[p] = Math.min(255, 62 + veins * 155 + russet * 60 + spot * 120 + rim * 30);
-      surface[p + 1] = Math.min(255, 185 + medium * 48 + rim * 18);
-      surface[p + 2] = 0;
-      surface[p + 3] = 255;
-      heights[row * size + col] = veins * 0.45 + fine * 0.025 + medium * 0.06;
-    }
-  }
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = y * size + x;
-      const dx = heights[y * size + Math.min(size - 1, x + 1)] - heights[y * size + Math.max(0, x - 1)];
-      const dy = heights[Math.min(size - 1, y + 1) * size + x] - heights[Math.max(0, y - 1) * size + x];
-      const nz = 1 / Math.hypot(dx * 2.4, dy * 2.4, 1);
-      normals[i * 4] = (-dx * 2.4 * nz * 0.5 + 0.5) * 255;
-      normals[i * 4 + 1] = (-dy * 2.4 * nz * 0.5 + 0.5) * 255;
-      normals[i * 4 + 2] = (nz * 0.5 + 0.5) * 255;
-      normals[i * 4 + 3] = 255;
-    }
-  }
-  function map(data: Uint8Array | Uint8ClampedArray) {
-    const result = new DataTexture(new Uint8Array(data.buffer), size, size, RGBAFormat);
+export function createTexturesFromData(data: ReturnType<typeof createSurfaceData>) {
+  function map(bytes: Uint8Array) {
+    const result = new DataTexture(bytes, data.size, data.size, RGBAFormat);
     result.generateMipmaps = true;
     result.minFilter = LinearMipmapLinearFilter;
     result.anisotropy = 4;
     result.needsUpdate = true;
     return result;
   }
-  const color = map(albedo);
+  const color = map(data.color);
   color.colorSpace = SRGBColorSpace;
-  return { color, normal: map(normals), surface: map(surface) };
+  return { color, normal: map(data.normal), surface: map(data.surface) };
 }
 
 export const leafForms = [
@@ -135,6 +44,12 @@ export const leafForms = [
   { name: 'flat blade', width: 1.02, bend: 0.015, cup: 0.02, twist: 0.015, hook: 0.008, lobes: 0 },
   { name: 'wavy broadleaf', width: 1.18, bend: 0.045, cup: -0.08, twist: -0.1, hook: 0.015, lobes: 0.06 },
 ] as const;
+
+/** Each depth population uses all forms, paired independently with its colors. */
+export function selectLeafForm(paletteIndex: number, populationIndex: number, seed: number) {
+  const offset = (Math.floor(hash(seed, populationIndex) * leafForms.length) + populationIndex) % leafForms.length;
+  return (paletteIndex + offset) % leafForms.length;
+}
 
 export function createGeometry(tier: DetailTier = 'high', formIndex = 0, seed = 2409) {
   const form = leafForms[formIndex];
@@ -194,10 +109,9 @@ export function createGeometry(tier: DetailTier = 'high', formIndex = 0, seed = 
   return geometry;
 }
 
-export interface LeafAtlas { color: Texture; normal: Texture; surface: Texture }
+export interface LeafSurface { color: DataTexture; normal: DataTexture; surface: DataTexture }
 
-export function createLeaf(sunDirection: Vector3, sunColor: Color, atlas?: LeafAtlas) {
-  const surfaces = leafForms.map((_, index) => atlas ?? createTextures(index));
+export function createLeaf(sunDirection: Vector3, sunColor: Color, surfaces: LeafSurface[] = leafForms.map((_, index) => createTextures(index))) {
   const maps = surfaces[0];
   const material = new MeshStandardNodeMaterial({
     map: maps.color, normalMap: maps.normal, normalScale: new Vector2(0.65, 0.65),
@@ -218,7 +132,7 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color, atlas?: LeafA
     .mul(mix(color, uniform(new Color('#ffb83d')), 0.35))
     .mul(back.pow(0.8)).mul(thin).mul(transmission).mul(sunStrength).mul(forwardScatter);
   material.emissiveNode = transmissionNode;
-  // Tiers share the atlas. Distant tiers skip normal-map sampling; the
+  // Tiers share the surfaces. Distant tiers skip normal-map sampling; the
   // background also skips the packed surface map and forward-scatter lobe.
   const tiers: DetailTier[] = ['high', 'medium', 'low'];
   const palettes = Object.fromEntries(tiers.map(tier => [tier,
@@ -245,23 +159,19 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color, atlas?: LeafA
     }),
   ])) as Record<DetailTier, { material: MeshStandardNodeMaterial; tint: Color }[]>;
   const geometryVariants = Object.fromEntries(tiers.map(tier => [tier, leafForms.map((_, index) => createGeometry(tier, index))])) as Record<DetailTier, BufferGeometry[]>;
-  if (atlas) {
-    for (const variants of Object.values(geometryVariants)) {
-      variants.forEach((geometry, index) => {
-        const uv = geometry.getAttribute('uv');
-        for (let i = 0; i < uv.count; i++) {
-          const [u, v] = atlasUV(index, uv.getX(i), uv.getY(i));
-          uv.setXY(i, u, v);
-        }
-      });
-    }
-  }
   const geometries = { high: geometryVariants.high[0], medium: geometryVariants.medium[0], low: geometryVariants.low[0] };
   const palette = palettes.high;
   const mesh = new Mesh(geometries.high, material);
   mesh.rotation.set(-0.18, -0.28, -0.38);
   return {
     mesh, material, palette, palettes, geometries, geometryVariants, transmission, sunStrength,
+    textureBytes: [...new Set(surfaces.flatMap(surface => Object.values(surface)))].reduce((sum, map) => {
+      let width = map.image.width, height = map.image.height, bytes = 0;
+      do { bytes += width * height * 4; if (width === 1 && height === 1) break;
+        width = Math.max(1, width >> 1); height = Math.max(1, height >> 1);
+      } while (map.generateMipmaps);
+      return sum + bytes;
+    }, 0),
     dispose() {
       Object.values(geometryVariants).flat().forEach(geometry => geometry.dispose());
       material.dispose();

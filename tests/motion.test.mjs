@@ -127,8 +127,13 @@ test('CPU recycling respawns offscreen within the same depth band in either wind
       assert.ok(leaf.position.z >= b.minZ && leaf.position.z <= b.maxZ);
       const x = halfWidthAtDepth(b, leaf.position.z), y = halfHeightAtDepth(b, leaf.position.z);
       const upstream = windDirection === 0 ? -x : x;
-      assert.ok(Math.abs(leaf.position.x - upstream) < 1e-10 || Math.abs(leaf.position.y - y) < 1e-10);
+      const upstreamOffset = windDirection === 0 ? upstream - leaf.position.x : leaf.position.x - upstream;
+      const topOffset = leaf.position.y - y;
+      assert.ok((upstreamOffset >= -1e-10 && upstreamOffset <= 0.7 + 1e-10)
+        || (topOffset >= -1e-10 && topOffset <= 0.7 + 1e-10));
     });
+    sim.update(1 / 120);
+    assert.equal(sim.recycled, 100, 'staggered spawn margins do not immediately recycle again');
   }
 });
 
@@ -154,4 +159,31 @@ test('CPU depth populations stay finite and bounded under extreme controls and r
     }
   }
   assert.ok(sim.recycled > 0);
+});
+
+
+test('foreground approaches remain smooth and individual while distant depth stays stable', () => {
+  const { sim, bounds } = makeDepth({ windSpeed: 0, gustStrength: 0, turbulence: 0, gravity: 0, lift: 0, tumble: 0, flutter: 0 });
+  sim.leaves.forEach(leaf => {
+    const b = bounds.get(leaf.population);
+    leaf.position.set(0, 0, (b.minZ + b.maxZ) / 2);
+    leaf.velocity.set(0, 0, 0);
+    leaf.mass = 1;
+  });
+  const foreground = sim.leaves.filter(leaf => leaf.population === 'foreground');
+  foreground[0].phase = Math.PI / 2;
+  foreground[1].phase = -Math.PI / 2;
+  let previous = foreground[0].position.z;
+  for (let frame = 0; frame < 120; frame++) {
+    sim.update(1 / 60);
+    assert.ok(Math.abs(foreground[0].position.z - previous) < 0.05);
+    previous = foreground[0].position.z;
+  }
+  assert.ok(foreground[0].position.z > 7.5);
+  assert.equal(foreground[1].position.z, 7);
+  sim.leaves.filter(leaf => leaf.population !== 'foreground').forEach(leaf => {
+    const b = bounds.get(leaf.population);
+    assert.equal(leaf.position.z, (b.minZ + b.maxZ) / 2);
+  });
+  assert.equal(sim.recycled, 0);
 });

@@ -1,6 +1,5 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
-import { read } from 'ktx-parse';
 import { sourceModule } from './modules.mjs';
 const root = new URL('../dist/', import.meta.url);
 async function inventory(directory, prefix = '') {
@@ -15,32 +14,22 @@ async function inventory(directory, prefix = '') {
   return output;
 }
 const files = await inventory(root);
-const manifest = JSON.parse(await readFile(new URL('../src/assets/manifest.json', import.meta.url)));
-const { createGeometry } = await sourceModule('leaf');
-let geometryBytes = 0;
-for (const tier of ['high', 'medium', 'low']) for (let index = 0; index < 5; index++) {
-  const geometry = createGeometry(tier, index);
-  geometryBytes += Object.values(geometry.attributes).reduce((sum, attribute) => sum + attribute.array.byteLength, 0) + geometry.index.array.byteLength;
-  geometry.dispose();
-}
-let blockBytes = 0;
-for (const file of manifest.files) {
-  const texture = read(await readFile(new URL(`../src/assets/${file.name}`, import.meta.url)));
-  texture.levels.forEach((_, level) => {
-    const width = Math.max(1, texture.pixelWidth >> level), height = Math.max(1, texture.pixelHeight >> level);
-    blockBytes += Math.ceil(width / 4) * Math.ceil(height / 4) * 16;
-  });
-}
+const { createLeaf } = await sourceModule('leaf');
+const { Color, Vector3 } = await import('three/webgpu');
+const leaf = createLeaf(new Vector3(0, 0.2, -1), new Color('#fff0d0'));
+const geometryBytes = Object.values(leaf.geometryVariants).flat().reduce((sum, geometry) => sum + geometry.index.array.byteLength
+  + Object.values(geometry.attributes).reduce((bytes, attribute) => bytes + attribute.array.byteLength, 0), 0);
 const total = files.reduce((sum, file) => sum + file.bytes, 0);
 const gzip = files.reduce((sum, file) => sum + file.gzipBytes, 0);
 const mib = bytes => (bytes / 1024 ** 2).toFixed(2);
-let text = '# Phase 8 asset budget\n\n';
+let text = '# Asset budget after startup optimization\n\n';
 text += '| Built file | Raw KiB | Gzip KiB |\n| --- | ---: | ---: |\n';
 for (const file of files) text += `| ${file.file} | ${(file.bytes / 1024).toFixed(1)} | ${(file.gzipBytes / 1024).toFixed(1)} |\n`;
-text += `\nBuilt payload: **${mib(total)} MiB raw / ${mib(gzip)} MiB with gzip**. This counts the entire build, including the decoder, rather than just textures. Gzip sizes are estimates; server compression, caching, request headers, and transport overhead differ. KTX2 files already use Zstd.\n\n`;
-text += `GPU texture storage: **${mib(blockBytes)} MiB** at 16-byte 4×4 blocks (BC7/ASTC/ETC2 RGBA), versus **20.00 MiB** for the previous fifteen RGBA8 512px textures including mips. Actual transcode formats are logged in development. Devices without native compression can use RGBA32: about **24.00 MiB**, larger because of atlas padding. The procedural fallback retains the old 20 MiB path.\n\n`;
-text += `Geometry: ${(geometryBytes / 1024).toFixed(1)} KiB for all fifteen source geometries, about ${(geometryBytes * 2 / 1024).toFixed(1)} KiB including batch clones. GPU simulation buffers: ${(500 * 160 / 1024).toFixed(1)} KiB for 500 slots (six vec4s plus a mat4 per slot). Grain texture: 1.33 MiB including mips. CPU initialization arrays and browser/driver bookkeeping are excluded.\n\n`;
-text += 'Post targets remain the largest variable memory cost: one HDR color + depth target and half-resolution bloom bright/blur targets are roughly 19.33 bytes per internal pixel before MSAA, swap-chain storage, driver alignment, and temporary resources. At 1920×1080 and DPR 1 this is about 38.2 MiB; effective DPR 1.75 is about 117.1 MiB. Phase 7 resolution adaptation reduces this quadratically. This is an estimate, not a GPU heap measurement.\n\n';
-text += 'Meshopt decision: no GLB geometry is transferred. Tiny leaf meshes are generated at startup and seeded curvature is baked locally. Adding Meshopt and a mesh download would add decoder/network cost to replace zero transferred geometry. Defer Meshopt until scanned or imported GLB assets create a measurable payload.\n';
+text += `\nEntire build: **${mib(total)} MiB raw / ${mib(gzip)} MiB gzip estimate**. No KTX2, Basis decoder, WASM, or image files ship. Gzip estimates depend on server configuration and exclude request overhead.\n\n`;
+text += `Foliage texture storage: **${mib(leaf.textureBytes)} MiB** for fifteen 256px RGBA8 maps including full mip chains, shared by depth tiers. The five color families, normal maps, packed thickness/roughness, and cutout silhouettes remain. Previous KTX2 atlas: 6 MiB with native 4×4 block compression, or about 24 MiB when transcoded to RGBA32. Previous 512px procedural version: 20 MiB. These are allocation-size estimates, not driver GPU heap measurements.\n\n`;
+text += `One 2.6 KiB worker generates surfaces once. Pixel buffers transfer without copies, and the worker terminates immediately. CPU staging pixels occupy 3.75 MiB retained by Three.js for texture ownership/context recovery; transient height fields and worker heap disappear on termination. No texture generation occurs in the animation loop. Worker failure falls back to synchronous generation at the same 256px resolution.\n\n`;
+text += `Geometry: ${(geometryBytes / 1024).toFixed(1)} KiB plus batch clones. GPU simulation: 78.1 KiB for 500 slots. Grain: 1.33 MiB including mips. HDR/depth/bloom targets remain roughly 19.33 bytes per internal pixel before MSAA, swap-chain storage and alignment: about 38.2 MiB at 1920×1080/DPR 1, or 117.1 MiB at effective DPR 1.75. Adaptive render scale remains the main control for this variable memory cost.\n\n`;
+text += 'See PERFORMANCE_REPORT.md for measured DevTools loading times and frame intervals. Meshopt remains unnecessary because geometry has zero transferred bytes.\n';
+leaf.dispose();
 await writeFile(new URL('../ASSET_REPORT.md', import.meta.url), text);
-console.log(`Payload ${mib(total)} MiB raw / ${mib(gzip)} MiB gzip; foliage ${mib(blockBytes)} MiB GPU block storage. Wrote ASSET_REPORT.md.`);
+console.log(`Payload ${mib(total)} MiB raw / ${mib(gzip)} MiB gzip; foliage ${mib(leaf.textureBytes)} MiB.`);

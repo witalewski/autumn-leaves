@@ -4,18 +4,21 @@ import { dot, float, mix, pass, renderOutput, texture, smoothstep, toneMapping, 
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 
 export const cinematicDefaults = {
-  postEnabled: true, bloomStrength: 0.16, bloomRadius: 0.55, bloomThreshold: 1.15,
-  flareStrength: 0.07, contrast: 1.04, saturation: 0.97, temperature: 0.025,
-  tint: 0, highlightWarmth: 0.035, shadowCoolness: 0.025, blackLevel: 0.003,
+  postEnabled: true, bloomStrength: 0.13, bloomRadius: 0.55, bloomThreshold: 1.15,
+  flareStrength: 0.045, contrast: 1.055, saturation: 0.94, temperature: 0.012,
+  tint: 0, highlightWarmth: 0.025, shadowCoolness: 0.018, blackLevel: 0.002,
   vignetteStrength: 0.16, grainStrength: 0.006, softFocus: 0.6,
 };
 type Controls = typeof cinematicDefaults & { exposure: number; running: boolean; sunIntensity: number };
 
+const projectedDirection = new Vector3();
+const projectedPoint = new Vector3();
+
 /** Directional sun projection, including a soft viewport edge fade and rear-hemisphere rejection. */
 export function projectSun(camera: PerspectiveCamera, direction: Vector3, target: Vector2) {
-  const viewDirection = direction.clone().transformDirection(camera.matrixWorldInverse);
+  const viewDirection = projectedDirection.copy(direction).transformDirection(camera.matrixWorldInverse);
   if (viewDirection.z >= 0) { target.set(0.5, 0.5); return 0; }
-  const point = camera.position.clone().addScaledVector(direction, 100).project(camera);
+  const point = projectedPoint.copy(camera.position).addScaledVector(direction, 100).project(camera);
   target.set(point.x * 0.5 + 0.5, 0.5 - point.y * 0.5);
   const edge = Math.max(Math.abs(point.x), Math.abs(point.y));
   const fade = Math.max(0, Math.min(1, (1.08 - edge) / 0.2));

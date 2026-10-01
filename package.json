@@ -1,7 +1,7 @@
 {
   "name": "autumn-leaves",
   "version": "1.0.0",
-  "description": "Phase 8: compressed foliage atlases and asset budget analysis",
+  "description": "Phase 9: cinematic motion, camera, and composition polish",
   "private": true,
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
@@ -12,7 +12,6 @@
     "preview": "vite preview --host 127.0.0.1",
     "check": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
-    "assets:bake": "node scripts/bake-assets.mjs",
     "assets:report": "node scripts/asset-report.mjs"
   },
   "keywords": [],
@@ -25,7 +24,6 @@
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
-    "ktx2-encoder": "^0.6.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
   }

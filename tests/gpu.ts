@@ -59,7 +59,7 @@ async function run() {
   cpu.leaves[0].position.set(103, 0, -1);
   upload(); gpu.setTime(0, 0); renderer.compute(gpu.kernel);
   const recycled = new Float32Array(await renderer.getArrayBufferAsync(gpu.buffers[0].value));
-  assert(recycled[3] === 1 && Math.abs(recycled[0]) <= 100 && Math.abs(recycled[1]) <= 100, 'GPU recycles an out-of-bounds leaf in place');
+  assert(recycled[3] === 1 && Math.abs(recycled[0]) <= 100.7 && Math.abs(recycled[1]) <= 100.7, 'GPU recycles an out-of-bounds leaf in place');
   gpu.configure({ ...config, windSpeed: 5, gustStrength: 5, turbulence: 2, drag: 3, lift: 2, tumble: 3, flutter: 2, angularDamping: 0 }, 100, 100);
   for (let step = 1; step <= 600; step++) {
     gpu.setTime(step / 120, 1 / 120);
@@ -106,7 +106,7 @@ async function run() {
       const extentX = (b.cameraZ - z) * b.halfWidthPerDistance + b.margin;
       const extentY = (b.cameraZ - z) * b.halfHeightPerDistance + b.margin;
       return recycledDepth[index * 4 + 3] === 1 && z >= b.minZ && z <= b.maxZ
-        && (Math.abs(Math.abs(x) - extentX) < 0.0001 || Math.abs(y - extentY) < 0.0001);
+        && ((Math.abs(x) >= extentX - 0.0001 && Math.abs(x) <= extentX + 0.7001) || (y >= extentY - 0.0001 && y <= extentY + 0.7001));
     });
     assert(valid, `${batch.population.id}: GPU recycles offscreen inside its own depth band`);
     const portrait = createPopulationBounds({ ...camera, aspect: 9 / 16, position: { x: 0, y: 0, z: 16 * 0.65 / (9 / 16) } }, batch.population.depth);

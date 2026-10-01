@@ -1,24 +1,19 @@
-# Phase 8 asset budget
+# Asset budget after startup optimization
 
 | Built file | Raw KiB | Gzip KiB |
 | --- | ---: | ---: |
-| BASIS_LICENSE.txt | 11.1 | 3.8 |
-| THIRD_PARTY_NOTICES.txt | 4.2 | 1.8 |
-| assets/basis_transcoder-VXdx5NbI.wasm | 515.0 | 241.8 |
-| assets/basis_transcoder-o4Hde_L7.js | 56.2 | 14.8 |
+| THIRD_PARTY_NOTICES.txt | 1.1 | 0.7 |
+| assets/SurfaceWorker-DiehqeXh.js | 2.5 | 1.3 |
+| assets/index-Be_ubZiQ.js | 909.8 | 250.4 |
 | assets/index-C2mnHj8Z.css | 1.7 | 0.9 |
-| assets/index-CMKXYWCl.js | 971.8 | 275.2 |
-| assets/leaves-color-WWFpEjQx.ktx2 | 1296.8 | 1296.9 |
-| assets/leaves-normal-DpFDIyKi.ktx2 | 1277.5 | 1277.2 |
-| assets/leaves-surface-CIauAMaF.ktx2 | 1366.6 | 1366.8 |
 | index.html | 1.0 | 0.6 |
 
-Built payload: **5.37 MiB raw / 4.37 MiB with gzip**. This counts the entire build, including the decoder, rather than just textures. Gzip sizes are estimates; server compression, caching, request headers, and transport overhead differ. KTX2 files already use Zstd.
+Entire build: **0.89 MiB raw / 0.25 MiB gzip estimate**. No KTX2, Basis decoder, WASM, or image files ship. Gzip estimates depend on server configuration and exclude request overhead.
 
-GPU texture storage: **6.00 MiB** at 16-byte 4×4 blocks (BC7/ASTC/ETC2 RGBA), versus **20.00 MiB** for the previous fifteen RGBA8 512px textures including mips. Actual transcode formats are logged in development. Devices without native compression can use RGBA32: about **24.00 MiB**, larger because of atlas padding. The procedural fallback retains the old 20 MiB path.
+Foliage texture storage: **5.00 MiB** for fifteen 256px RGBA8 maps including full mip chains, shared by depth tiers. The five color families, normal maps, packed thickness/roughness, and cutout silhouettes remain. Previous KTX2 atlas: 6 MiB with native 4×4 block compression, or about 24 MiB when transcoded to RGBA32. Previous 512px procedural version: 20 MiB. These are allocation-size estimates, not driver GPU heap measurements.
 
-Geometry: 16.3 KiB for all fifteen source geometries, about 32.6 KiB including batch clones. GPU simulation buffers: 78.1 KiB for 500 slots (six vec4s plus a mat4 per slot). Grain texture: 1.33 MiB including mips. CPU initialization arrays and browser/driver bookkeeping are excluded.
+One 2.6 KiB worker generates surfaces once. Pixel buffers transfer without copies, and the worker terminates immediately. CPU staging pixels occupy 3.75 MiB retained by Three.js for texture ownership/context recovery; transient height fields and worker heap disappear on termination. No texture generation occurs in the animation loop. Worker failure falls back to synchronous generation at the same 256px resolution.
 
-Post targets remain the largest variable memory cost: one HDR color + depth target and half-resolution bloom bright/blur targets are roughly 19.33 bytes per internal pixel before MSAA, swap-chain storage, driver alignment, and temporary resources. At 1920×1080 and DPR 1 this is about 38.2 MiB; effective DPR 1.75 is about 117.1 MiB. Phase 7 resolution adaptation reduces this quadratically. This is an estimate, not a GPU heap measurement.
+Geometry: 16.3 KiB plus batch clones. GPU simulation: 78.1 KiB for 500 slots. Grain: 1.33 MiB including mips. HDR/depth/bloom targets remain roughly 19.33 bytes per internal pixel before MSAA, swap-chain storage and alignment: about 38.2 MiB at 1920×1080/DPR 1, or 117.1 MiB at effective DPR 1.75. Adaptive render scale remains the main control for this variable memory cost.
 
-Meshopt decision: no GLB geometry is transferred. Tiny leaf meshes are generated at startup and seeded curvature is baked locally. Adding Meshopt and a mesh download would add decoder/network cost to replace zero transferred geometry. Defer Meshopt until scanned or imported GLB assets create a measurable payload.
+See PERFORMANCE_REPORT.md for measured DevTools loading times and frame intervals. Meshopt remains unnecessary because geometry has zero transferred bytes.

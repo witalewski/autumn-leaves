@@ -1,5 +1,5 @@
 import { DynamicDrawUsage, InstancedMesh, Matrix4, Vector3, type WebGPURenderer } from 'three/webgpu';
-import { createGeometry, type createLeaf } from './leaf';
+import { createGeometry, selectLeafForm, type createLeaf } from './leaf';
 import { MotionSimulation, type MotionConfig } from './simulation/MotionSimulation';
 import { createGpuMotion } from './simulation/GpuMotion';
 import { createPopulationBounds, createPopulationConfigs, type DepthCamera, type PopulationBounds, type PopulationId } from './simulation/DepthComposition';
@@ -75,7 +75,7 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
     // Bake form variation only on explicit reset. Keep storage attributes and
     // instance slots intact; recomputed normals follow each bend and twist.
     for (const batch of batches) {
-      const geometry = createGeometry(populations[batch.populationIndex].geometryTier, batch.paletteIndex, config.seed + batch.populationIndex * 137);
+      const geometry = createGeometry(populations[batch.populationIndex].geometryTier, selectLeafForm(batch.paletteIndex, batch.populationIndex, config.seed), config.seed + batch.populationIndex * 137);
       for (const name of ['position', 'normal']) {
         const target = batch.mesh.geometry.getAttribute(name);
         target.array.set(geometry.getAttribute(name).array);

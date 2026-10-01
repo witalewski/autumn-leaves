@@ -1,0 +1,142 @@
+{
+  "url": "http://127.0.0.1:4190/baseline/",
+  "slow": true,
+  "runs": [
+    {
+      "readyMs": 30627.80000001192,
+      "texturesMs": 23472.099999964237,
+      "backend": "WebGPU",
+      "assets": "KTX2 atlas",
+      "textureBytes": null,
+      "transferBytes": 5621092,
+      "resourceBytes": 5618692,
+      "requests": [
+        {
+          "name": "/baseline/assets/index-_Y93GbZG.js",
+          "bytes": 996487
+        },
+        {
+          "name": "/baseline/assets/index-C2mnHj8Z.css",
+          "bytes": 2054
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 769
+        },
+        {
+          "name": "/baseline/assets/leaves-color-WWFpEjQx.ktx2",
+          "bytes": 1328188
+        },
+        {
+          "name": "/baseline/assets/leaves-normal-DpFDIyKi.ktx2",
+          "bytes": 1308413
+        },
+        {
+          "name": "/baseline/assets/leaves-surface-CIauAMaF.ktx2",
+          "bytes": 1399719
+        },
+        {
+          "name": "/baseline/assets/basis_transcoder-o4Hde_L7.js",
+          "bytes": 57829
+        },
+        {
+          "name": "/baseline/assets/basis_transcoder-VXdx5NbI.wasm",
+          "bytes": 527633
+        }
+      ],
+      "meanFrameMs": 16.665921787709483,
+      "p95FrameMs": 16.700000000004366,
+      "longTaskMs": 1215,
+      "maxLongTaskMs": 674,
+      "errors": []
+    },
+    {
+      "readyMs": 30590.80000001192,
+      "texturesMs": 23453.80000001192,
+      "backend": "WebGPU",
+      "assets": "KTX2 atlas",
+      "textureBytes": null,
+      "transferBytes": 5620323,
+      "resourceBytes": 5618223,
+      "requests": [
+        {
+          "name": "/baseline/assets/index-_Y93GbZG.js",
+          "bytes": 996487
+        },
+        {
+          "name": "/baseline/assets/index-C2mnHj8Z.css",
+          "bytes": 2054
+        },
+        {
+          "name": "/baseline/assets/leaves-color-WWFpEjQx.ktx2",
+          "bytes": 1328188
+        },
+        {
+          "name": "/baseline/assets/leaves-normal-DpFDIyKi.ktx2",
+          "bytes": 1308413
+        },
+        {
+          "name": "/baseline/assets/leaves-surface-CIauAMaF.ktx2",
+          "bytes": 1399719
+        },
+        {
+          "name": "/baseline/assets/basis_transcoder-o4Hde_L7.js",
+          "bytes": 57829
+        },
+        {
+          "name": "/baseline/assets/basis_transcoder-VXdx5NbI.wasm",
+          "bytes": 527633
+        }
+      ],
+      "meanFrameMs": 16.665363128491613,
+      "p95FrameMs": 16.799999999995634,
+      "longTaskMs": 1237,
+      "maxLongTaskMs": 719,
+      "errors": []
+    },
+    {
+      "readyMs": 30400.600000023842,
+      "texturesMs": 23432.099999964237,
+      "backend": "WebGPU",
+      "assets": "KTX2 atlas",
+      "textureBytes": null,
+      "transferBytes": 5620323,
+      "resourceBytes": 5618223,
+      "requests": [
+        {
+          "name": "/baseline/assets/index-_Y93GbZG.js",
+          "bytes": 996487
+        },
+        {
+          "name": "/baseline/assets/index-C2mnHj8Z.css",
+          "bytes": 2054
+        },
+        {
+          "name": "/baseline/assets/leaves-color-WWFpEjQx.ktx2",
+          "bytes": 1328188
+        },
+        {
+          "name": "/baseline/assets/leaves-normal-DpFDIyKi.ktx2",
+          "bytes": 1308413
+        },
+        {
+          "name": "/baseline/assets/leaves-surface-CIauAMaF.ktx2",
+          "bytes": 1399719
+        },
+        {
+          "name": "/baseline/assets/basis_transcoder-o4Hde_L7.js",
+          "bytes": 57829
+        },
+        {
+          "name": "/baseline/assets/basis_transcoder-VXdx5NbI.wasm",
+          "bytes": 527633
+        }
+      ],
+      "meanFrameMs": 16.665921787709483,
+      "p95FrameMs": 16.700000000004366,
+      "longTaskMs": 1120,
+      "maxLongTaskMs": 652,
+      "errors": []
+    }
+  ]
+}

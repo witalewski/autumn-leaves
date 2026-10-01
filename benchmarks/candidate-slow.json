@@ -1,0 +1,94 @@
+{
+  "url": "http://127.0.0.1:4190/candidate/",
+  "slow": true,
+  "runs": [
+    {
+      "readyMs": 7058.199999988079,
+      "texturesMs": 325.2000000476837,
+      "backend": "WebGPU",
+      "assets": "Procedural worker 256",
+      "textureBytes": 5242860,
+      "transferBytes": 937580,
+      "resourceBytes": 936380,
+      "requests": [
+        {
+          "name": "/candidate/assets/index-Be_ubZiQ.js",
+          "bytes": 931892
+        },
+        {
+          "name": "/candidate/assets/index-C2mnHj8Z.css",
+          "bytes": 2054
+        },
+        {
+          "name": "/favicon.ico",
+          "bytes": 769
+        },
+        {
+          "name": "/candidate/assets/SurfaceWorker-DiehqeXh.js",
+          "bytes": 2865
+        }
+      ],
+      "meanFrameMs": 16.66648044692738,
+      "p95FrameMs": 16.799999999999272,
+      "longTaskMs": 1134,
+      "maxLongTaskMs": 630,
+      "errors": []
+    },
+    {
+      "readyMs": 6994.300000011921,
+      "texturesMs": 316.80000001192093,
+      "backend": "WebGPU",
+      "assets": "Procedural worker 256",
+      "textureBytes": 5242860,
+      "transferBytes": 936811,
+      "resourceBytes": 935911,
+      "requests": [
+        {
+          "name": "/candidate/assets/index-Be_ubZiQ.js",
+          "bytes": 931892
+        },
+        {
+          "name": "/candidate/assets/index-C2mnHj8Z.css",
+          "bytes": 2054
+        },
+        {
+          "name": "/candidate/assets/SurfaceWorker-DiehqeXh.js",
+          "bytes": 2865
+        }
+      ],
+      "meanFrameMs": 16.66648044692737,
+      "p95FrameMs": 16.700000000000728,
+      "longTaskMs": 1142,
+      "maxLongTaskMs": 651,
+      "errors": []
+    },
+    {
+      "readyMs": 7068.399999976158,
+      "texturesMs": 309.30000001192093,
+      "backend": "WebGPU",
+      "assets": "Procedural worker 256",
+      "textureBytes": 5242860,
+      "transferBytes": 936811,
+      "resourceBytes": 935911,
+      "requests": [
+        {
+          "name": "/candidate/assets/index-Be_ubZiQ.js",
+          "bytes": 931892
+        },
+        {
+          "name": "/candidate/assets/index-C2mnHj8Z.css",
+          "bytes": 2054
+        },
+        {
+          "name": "/candidate/assets/SurfaceWorker-DiehqeXh.js",
+          "bytes": 2865
+        }
+      ],
+      "meanFrameMs": 16.6659217877095,
+      "p95FrameMs": 16.700000000000728,
+      "longTaskMs": 1207,
+      "maxLongTaskMs": 701,
+      "errors": []
+    }
+  ]
+}

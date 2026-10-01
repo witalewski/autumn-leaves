@@ -1,18 +1,20 @@
 import './style.css';
+performance.mark('autumn:module-start');
 import { Color, DirectionalLight, HemisphereLight, MathUtils, PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
-import { createLeaf, type LeafAtlas } from './leaf';
-import { loadLeafAtlas } from './foliage/LeafAssets';
+import { createLeaf, type LeafSurface } from './leaf';
+import { loadLeafSurfaces } from './foliage/SurfaceAssets';
 import { createRenderer } from './renderer';
 import { createSky } from './sky';
 import { createLeafSystem } from './LeafSystem';
 import { cinematicDefaults, createCinematicPost } from './scene/CinematicPost';
+import { createCameraController } from './scene/CameraController';
 import { createAtmosphere } from './scene/Atmosphere';
 import { QualityController } from './quality/QualityController';
 import { qualityValues, type QualityMode } from './quality/QualityPresets';
 import { motionDefaults } from './simulation/MotionSimulation';
 
 export const settings = {
-  sunAzimuth: 15, sunElevation: 10, sunIntensity: 3.2, sunColor: '#fff0d0', skyIntensity: 1.3,
+  sunAzimuth: 15, sunElevation: 10, sunIntensity: 3.0, sunColor: '#fff0d8', skyIntensity: 1.25,
   transmission: 1.15, roughness: 0.85, normalStrength: 0.65, leafColor: '#ffffff',
   haze: 0.45, clouds: 0.32, exposure: 1,
   depthHazeStart: 18, depthHazeFalloff: 0.035, depthHazeStrength: 0.65,
@@ -55,27 +57,24 @@ async function start() {
   const atmosphere = createAtmosphere();
   scene.fogNode = atmosphere.node;
   const camera = new PerspectiveCamera(40, 1, 0.1, 200);
+  const cameraMotion = createCameraController(camera);
   const sunDirection = new Vector3();
   const sunColor = new Color(settings.sunColor);
   const sun = new DirectionalLight(sunColor, settings.sunIntensity);
   const ambient = new HemisphereLight('#c1d9ef', '#72604c', settings.skyIntensity);
-  let atlas: LeafAtlas | undefined;
+  performance.mark('autumn:textures-start');
+  let surfaces: LeafSurface[] | undefined;
   try {
-    if (!import.meta.env.DEV || params.get('assets') !== 'procedural') atlas = await loadLeafAtlas(renderer);
+    if (!import.meta.env.DEV || params.get('assets') !== 'sync') surfaces = await loadLeafSurfaces();
   }
   catch (error) {
     // Asset/network/worker failures retain the existing procedural artwork.
-    if (import.meta.env.DEV) console.warn('Foliage atlas unavailable; using procedural surfaces.', error);
+    if (import.meta.env.DEV) console.warn('Surface worker unavailable; using synchronous generation.', error);
   }
-  const leaf = createLeaf(sunDirection, sunColor, atlas);
-  host.dataset.assets = atlas ? 'KTX2 atlas' : 'Procedural fallback';
-  if (import.meta.env.DEV && atlas) {
-    console.info('Foliage atlas:', JSON.stringify(Object.values(atlas).map(map => ({
-      format: map.format, width: map.image.width, height: map.image.height,
-      mipLevels: map.mipmaps.length,
-      residentBytes: map.mipmaps.reduce((sum: number, mip: { data: ArrayBufferView }) => sum + mip.data.byteLength, 0),
-    }))));
-  }
+  const leaf = createLeaf(sunDirection, sunColor, surfaces);
+  performance.measure('autumn:textures', 'autumn:textures-start');
+  host.dataset.assets = surfaces ? 'Procedural worker 256' : 'Procedural sync 256';
+  host.dataset.textureBytes = String(leaf.textureBytes);
   const sky = createSky(sunDirection, sunColor, settings.seed);
   const gpu = capabilities.backend === 'WebGPU';
   settings.leafCount = import.meta.env.DEV ? (gpu ? 500 : 100) : motionDefaults.leafCount;
@@ -101,7 +100,7 @@ async function start() {
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, settings.dprCap) * settings.renderScale);
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
-    camera.position.set(0, 0, 16 * Math.max(1, 0.65 / camera.aspect));
+    cameraMotion.resize();
     camera.updateProjectionMatrix();
     foliage.setCameraBounds(camera);
   }
@@ -190,6 +189,7 @@ async function start() {
     const dt = Math.min(elapsed, 0.05);
     lastTime = now;
     try {
+      cameraMotion.update(dt, settings.running, motion.matches);
       foliage.update(dt, motion.matches);
       sky.update(dt, motion.matches, settings);
       post.render(motion.matches, dt);
@@ -241,11 +241,12 @@ async function start() {
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { foliage.reset(); sky.reset(settings.seed); }, foliage, quality);
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { foliage.reset(); sky.reset(settings.seed); cameraMotion.reset(); }, foliage, quality);
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;
   ready = true;
+  performance.measure('autumn:scene-ready', { start: 0, end: performance.now() });
   if (!document.hidden) request = requestAnimationFrame(frame);
 }
 

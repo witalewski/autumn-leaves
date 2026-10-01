@@ -1,5 +1,5 @@
 import { StorageInstancedBufferAttribute, Vector2, Vector4 } from 'three/webgpu';
-import { Fn, If, abs, cos, cross, dot, exp, float, instanceIndex, instancedArray, length, mat4, max, min, normalize, sin, storage, uniform, vec3, vec4 } from 'three/tsl';
+import { Fn, If, abs, cos, cross, dot, exp, float, instanceIndex, instancedArray, length, mat4, max, min, normalize, sin, smoothstep, storage, uniform, vec3, vec4 } from 'three/tsl';
 import type { PopulationBounds } from './DepthComposition';
 import type { MotionConfig, LeafState } from './MotionSimulation';
 
@@ -13,10 +13,10 @@ export function createGpuMotion(capacity: number) {
   // Camera Z, horizontal/vertical extent per distance, offscreen margin.
   const projection = uniform(new Vector4(16, 1, 1, 1));
   const center = uniform(new Vector2());
-  const wind = uniform(new Vector2(1.7, 15 * Math.PI / 180));
-  const gust = uniform(1.8), turbulence = uniform(0.65), gravity = uniform(1.6);
-  const drag = uniform(1.15), lift = uniform(0.65), tumble = uniform(1.1);
-  const flutter = uniform(0.55), damping = uniform(1.5);
+  const wind = uniform(new Vector2(1.35, 15 * Math.PI / 180));
+  const gust = uniform(1.3), turbulence = uniform(0.45), gravity = uniform(1.6);
+  const drag = uniform(1.15), lift = uniform(0.65), tumble = uniform(0.75);
+  const flutter = uniform(0.38), damping = uniform(1.75);
   const position = instancedArray(capacity, 'vec4');
   const velocity = instancedArray(capacity, 'vec4');
   const rotation = instancedArray(capacity, 'vec4');
@@ -35,7 +35,9 @@ export function createGpuMotion(capacity: number) {
     const frequency = angular.element(instanceIndex).w;
     const scale = scales.element(instanceIndex).xyz;
     const x = p.x.sub(time.mul(0.4)), y = p.y, z = p.z;
-    const pulse = sin(time.mul(0.57).add(x.mul(0.17)).add(z.mul(0.23))).mul(0.5).add(0.5).pow(3).mul(gust);
+    const envelope = sin(time.mul(0.23).add(x.mul(0.17)).add(z.mul(0.23))).mul(0.32)
+      .add(sin(time.mul(0.413).sub(x.mul(0.09)).add(y.mul(0.12)).add(1.7)).mul(0.18)).add(0.5);
+    const pulse = envelope.pow(3).mul(gust);
     const speedWind = wind.x.add(pulse);
     const air = vec3(
       cos(wind.y).mul(speedWind).add(turbulence.mul(sin(y.mul(0.72).add(time.mul(0.81)).add(z.mul(0.3))))),
@@ -53,8 +55,10 @@ export function createGpuMotion(capacity: number) {
     v.addAssign(air.mul(braking).mul(dt));
     v.addAssign(normal.sub(flow.mul(incidence)).mul(min(speed.mul(speed), 36)).mul(incidence).mul(lift).mul(leafLift).div(mass).mul(dt));
     v.y.subAssign(gravity.mul(dt));
-    const centerZ = depth.x.add(depth.y).mul(0.5);
     const halfDepth = depth.y.sub(depth.x).mul(0.5);
+    const approach = smoothstep(0.88, 0.995, sin(time.mul(mass.mul(0.03).add(0.13)).add(phase)));
+    const centerZ = depth.x.add(depth.y).mul(0.5)
+      .add(depthEnabled.greaterThan(0).and(depth.x.greaterThanEqual(4)).select(approach.mul(halfDepth).mul(0.72), 0));
     v.z.addAssign(p.z.sub(centerZ).div(halfDepth).mul(-0.8).sub(v.z.mul(0.6)).mul(dt));
     v.mulAssign(min(float(1), float(9).div(max(length(v), 0.0001))));
     p.addAssign(v.mul(dt));
@@ -89,9 +93,9 @@ export function createGpuMotion(capacity: number) {
       const spawnDistance = projection.x.sub(spawnZ);
       const spawnX = depthEnabled.greaterThan(0).select(spawnDistance.mul(projection.y).add(projection.w), bounds.x);
       const spawnY = depthEnabled.greaterThan(0).select(spawnDistance.mul(projection.z).add(projection.w), bounds.y);
-      p.assign(vec3(r.mul(2).sub(1).mul(spawnX), spawnY, spawnZ));
+      p.assign(vec3(r.mul(2).sub(1).mul(spawnX), spawnY.add(r.mul(0.7)), spawnZ));
       If(r2.greaterThan(0.45), () => {
-        p.x.assign(cos(wind.y).greaterThanEqual(0).select(spawnX.negate(), spawnX));
+        p.x.assign(cos(wind.y).greaterThanEqual(0).select(spawnX.add(r2.mul(0.7)).negate(), spawnX.add(r2.mul(0.7))));
         p.y.assign(r.mul(2).sub(1).mul(spawnY));
       });
       p.xy.addAssign(center);

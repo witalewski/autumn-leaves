@@ -3,8 +3,8 @@ import type { PopulationBounds, PopulationConfig, PopulationId } from './DepthCo
 
 export const motionDefaults = {
   running: true, leafCount: 32, seed: 2409,
-  windDirection: 15, windSpeed: 1.7, gustStrength: 1.8, turbulence: 0.65,
-  gravity: 1.6, drag: 1.15, lift: 0.65, tumble: 1.1, flutter: 0.55, angularDamping: 1.5,
+  windDirection: 15, windSpeed: 1.35, gustStrength: 1.3, turbulence: 0.45,
+  gravity: 1.6, drag: 1.15, lift: 0.65, tumble: 0.75, flutter: 0.38, angularDamping: 1.75,
 };
 export type MotionConfig = typeof motionDefaults;
 export interface LeafState {
@@ -25,7 +25,10 @@ export interface LeafState {
 export function sampleWind(position: Vector3, time: number, config: MotionConfig, out: Vector3) {
   const angle = config.windDirection * Math.PI / 180;
   const x = position.x - time * 0.4, y = position.y, z = position.z;
-  const gust = config.gustStrength * (0.5 + 0.5 * Math.sin(time * 0.57 + x * 0.17 + z * 0.23)) ** 3;
+  // Overlapping slow fronts avoid a single obvious gust period.
+  const envelope = 0.5 + 0.32 * Math.sin(time * 0.23 + x * 0.17 + z * 0.23)
+    + 0.18 * Math.sin(time * 0.413 - x * 0.09 + y * 0.12 + 1.7);
+  const gust = config.gustStrength * envelope ** 3;
   const speed = config.windSpeed + gust;
   out.set(Math.cos(angle) * speed, Math.sin(angle) * speed, 0);
   out.x += config.turbulence * Math.sin(y * 0.72 + time * 0.81 + z * 0.3);
@@ -113,8 +116,8 @@ export class MotionSimulation {
     leaf.position.set((rx * 2 - 1) * x, (ry * 2 - 1) * y, z);
     if (!initial) {
       // Top or upstream edge, beyond the visible frame and leaf radius.
-      if (this.random() < 0.45) leaf.position.y = y;
-      else leaf.position.x = Math.cos(this.config.windDirection * Math.PI / 180) >= 0 ? -x : x;
+      if (this.random() < 0.45) leaf.position.y = y + rz * 0.7;
+      else leaf.position.x = (Math.cos(this.config.windDirection * Math.PI / 180) >= 0 ? -1 : 1) * (x + rz * 0.7);
     }
     if (bounds) { leaf.position.x += bounds.centerX; leaf.position.y += bounds.centerY; }
     leaf.mass = 0.8 + this.random() * 0.4;
@@ -161,8 +164,14 @@ export class MotionSimulation {
       leaf.velocity.addScaledVector(this.liftDirection, Math.min(speed * speed, 36) * incidence * c.lift * leaf.lift / leaf.mass * dt);
       leaf.velocity.y -= c.gravity * dt;
       // A soft spring retains each depth band; no visible depth-triggered respawns.
-      const centerZ = bounds ? (bounds.minZ + bounds.maxZ) / 2 : -1;
+      let centerZ = bounds ? (bounds.minZ + bounds.maxZ) / 2 : -1;
       const halfDepth = bounds ? (bounds.maxZ - bounds.minZ) / 2 : 1;
+      // Independent, smooth near-camera excursions in the foreground pool.
+      // No new particles, CPU events, readback, or teleporting across depth.
+      if (bounds && bounds.minZ >= 4) {
+        const pulse = Math.max(0, Math.min(1, (Math.sin(this.time * (0.13 + leaf.mass * 0.03) + leaf.phase) - 0.88) / 0.115));
+        centerZ += halfDepth * 0.72 * pulse * pulse * (3 - 2 * pulse);
+      }
       const displacement = (leaf.position.z - centerZ) / halfDepth;
       leaf.velocity.z += (-displacement * 0.8 - leaf.velocity.z * 0.6) * dt;
       leaf.velocity.clampLength(0, 9);
