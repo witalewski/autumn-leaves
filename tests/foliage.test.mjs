@@ -111,6 +111,38 @@ test('real CPU foliage batches preserve seeded transforms, count controls, and r
 });
 
 
+test('CPU matrix uploads cover visible prefixes and wait for a simulation step', () => {
+  const leaf = createLeaf(new Vector3(0, 0.2, -1), new Color('#fff0d0'));
+  const config = { ...motionDefaults, leafCount: 32 };
+  const system = createLeafSystem(leaf, config, {}, false);
+  system.reset();
+  const versions = () => system.meshes.map(mesh => mesh.instanceMatrix.version);
+  const initial = versions();
+  system.update(1 / 1000, true); // No fixed step has elapsed.
+  assert.deepEqual(versions(), initial);
+  system.update(1 / 60, false);
+  assert.notDeepEqual(versions(), initial);
+  for (const mesh of system.meshes) {
+    const ranges = mesh.instanceMatrix.updateRanges;
+    if (mesh.count) assert.deepEqual(ranges, [{ start: 0, count: mesh.count * 16 }]);
+  }
+  config.running = false;
+  system.configure();
+  system.update(0, false);
+  const paused = versions();
+  system.update(1, false);
+  assert.deepEqual(versions(), paused);
+  // Increasing counts while paused uploads the restored prefix once.
+  config.leafCount = 70;
+  system.configure();
+  system.update(0, false);
+  assert.notDeepEqual(versions(), paused);
+  const restored = versions();
+  system.update(0, false);
+  assert.deepEqual(versions(), restored);
+  system.dispose(); leaf.dispose();
+});
+
 test('leaf forms have distinct bending, silhouettes and normals at every LOD', () => {
   for (const tier of ['high', 'medium', 'low']) {
     const shapes = leafForms.map((_, i) => createGeometry(tier, i, 2409));

@@ -48,13 +48,12 @@ test('grain texture has unbiased, locally clustered monochrome noise and filtere
   const texture = createGrainTexture();
   const data = texture.image.data;
   let mean = 0, variance = 0, covariance = 0;
-  const count = data.length / 4;
-  for (let i = 0; i < data.length; i += 4) {
-    assert.equal(data[i], data[i + 1]);
-    assert.equal(data[i], data[i + 2]);
+  const count = data.length;
+  assert.equal(data.byteLength, 512 * 512);
+  for (let i = 0; i < data.length; i++) {
     const v = data[i] / 255 - 0.5;
     mean += v; variance += v * v;
-    if (i + 4 < data.length) covariance += v * (data[i + 4] / 255 - 0.5);
+    if (i + 1 < data.length) covariance += v * (data[i + 1] / 255 - 0.5);
   }
   assert.ok(Math.abs(mean / count) < 0.005);
   assert.ok(variance / count > 0.035);

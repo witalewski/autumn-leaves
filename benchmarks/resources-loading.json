@@ -1,0 +1,223 @@
+{
+  "baseline": "http://127.0.0.1:4180/",
+  "candidate": "http://127.0.0.1:4181/",
+  "version": "154.0.8037.93",
+  "runs": [
+    {
+      "build": "candidate",
+      "run": 0,
+      "slow": false,
+      "readyMs": 531.1999999992549,
+      "textureMs": 129.59999999962747,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 0,
+      "slow": false,
+      "readyMs": 523.7999999988824,
+      "textureMs": 121,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 1,
+      "slow": false,
+      "readyMs": 546.9000000003725,
+      "textureMs": 137.2000000011176,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 1,
+      "slow": false,
+      "readyMs": 530.1999999992549,
+      "textureMs": 129.80000000074506,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 2,
+      "slow": false,
+      "readyMs": 520.5999999996275,
+      "textureMs": 124.09999999962747,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 2,
+      "slow": false,
+      "readyMs": 519.6000000014901,
+      "textureMs": 126.80000000074506,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 0,
+      "slow": false,
+      "readyMs": 638.8999999985099,
+      "textureMs": 138.7999999988824,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 0,
+      "slow": false,
+      "readyMs": 668.1999999992549,
+      "textureMs": 152.7999999988824,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 1,
+      "slow": false,
+      "readyMs": 626.7000000011176,
+      "textureMs": 122.70000000111759,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 1,
+      "slow": false,
+      "readyMs": 640.9000000003725,
+      "textureMs": 130.2000000011176,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 2,
+      "slow": false,
+      "readyMs": 618.6999999992549,
+      "textureMs": 121.60000000149012,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 2,
+      "slow": false,
+      "readyMs": 619.3000000007451,
+      "textureMs": 119.90000000037253,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 0,
+      "slow": true,
+      "readyMs": 6749.800000000745,
+      "textureMs": 279.3999999985099,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 0,
+      "slow": true,
+      "readyMs": 6752.0999999996275,
+      "textureMs": 284.90000000037253,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 1,
+      "slow": true,
+      "readyMs": 6708.799999998882,
+      "textureMs": 290.40000000037253,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 1,
+      "slow": true,
+      "readyMs": 6725.5999999996275,
+      "textureMs": 284.69999999925494,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 2,
+      "slow": true,
+      "readyMs": 6757.699999999255,
+      "textureMs": 282,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 2,
+      "slow": true,
+      "readyMs": 6767.9000000003725,
+      "textureMs": 282.7000000011176,
+      "backend": "WebGPU",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 0,
+      "slow": true,
+      "readyMs": 6656.199999999255,
+      "textureMs": 285.59999999962747,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 0,
+      "slow": true,
+      "readyMs": 6663.4000000003725,
+      "textureMs": 302.7999999988824,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 1,
+      "slow": true,
+      "readyMs": 6655.5,
+      "textureMs": 285.19999999925494,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 1,
+      "slow": true,
+      "readyMs": 6658.0999999996275,
+      "textureMs": 286.69999999925494,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "candidate",
+      "run": 2,
+      "slow": true,
+      "readyMs": 6682.0999999996275,
+      "textureMs": 296.2999999988824,
+      "backend": "WebGL2",
+      "errors": []
+    },
+    {
+      "build": "baseline",
+      "run": 2,
+      "slow": true,
+      "readyMs": 6658.199999999255,
+      "textureMs": 283.40000000037253,
+      "backend": "WebGL2",
+      "errors": []
+    }
+  ]
+}

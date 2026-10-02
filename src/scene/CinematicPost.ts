@@ -1,4 +1,4 @@
-import { ACESFilmicToneMapping, NoToneMapping, DataTexture, LinearFilter, LinearMipmapLinearFilter, RepeatWrapping, RGBAFormat, RenderPipeline, Vector2, Vector3 } from 'three/webgpu';
+import { ACESFilmicToneMapping, NoToneMapping, DataTexture, LinearFilter, LinearMipmapLinearFilter, RepeatWrapping, RedFormat, RenderPipeline, Vector2, Vector3 } from 'three/webgpu';
 import type { Node, PerspectiveCamera, Scene, WebGPURenderer } from 'three/webgpu';
 import { dot, float, mix, pass, renderOutput, texture, smoothstep, toneMapping, uniform, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
@@ -30,7 +30,7 @@ export function projectSun(camera: PerspectiveCamera, direction: Vector3, target
 export function createGrainTexture() {
   const size = 512;
   const field = new Float32Array(size * size);
-  const data = new Uint8Array(size * size * 4);
+  const data = new Uint8Array(size * size);
   let state = 0x6d2b79f5;
   function random() {
     state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
@@ -54,10 +54,9 @@ export function createGrainTexture() {
   const deviation = Math.sqrt(squared / field.length - mean * mean);
   for (let i = 0; i < field.length; i++) {
     const value = Math.round(Math.max(0, Math.min(1, 0.5 + (field[i] - mean) / deviation * 0.23)) * 255);
-    data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = value;
-    data[i * 4 + 3] = 255;
+    data[i] = value;
   }
-  const map = new DataTexture(data, size, size, RGBAFormat);
+  const map = new DataTexture(data, size, size, RedFormat);
   map.wrapS = map.wrapT = RepeatWrapping;
   map.magFilter = LinearFilter;
   map.minFilter = LinearMipmapLinearFilter;
@@ -68,6 +67,9 @@ export function createGrainTexture() {
 
 export function createCinematicPost(renderer: WebGPURenderer, scene: Scene, camera: PerspectiveCamera, settings: Controls, sunDirection: Vector3) {
   const scenePass = pass(scene, camera);
+  // Compile against the actual HDR/MSAA target. Compiling to the canvas
+  // allocates a second full-size framebuffer that this pipeline never uses.
+  scenePass.renderTarget.samples = renderer.samples;
   const color = scenePass.getTextureNode('output');
   const depth = scenePass.getTextureNode('depth');
   const bloomPass = bloom(color, settings.bloomStrength, settings.bloomRadius, settings.bloomThreshold);
@@ -143,6 +145,7 @@ export function createCinematicPost(renderer: WebGPURenderer, scene: Scene, came
   let grainTick = -1;
   const size = new Vector2();
   return {
+    compile: () => scenePass.compileAsync(renderer),
     apply() {
       for (const key of Object.keys(controls) as (keyof typeof controls)[]) controls[key].value = settings[key];
       bloomPass.strength.value = settings.bloomStrength;

@@ -1,0 +1,30 @@
+[
+  {
+    "backend": "webgpu",
+    "viewport": "landscape",
+    "meanChannelDifference": 0.0,
+    "maxChannelDifference": 0,
+    "changedPixelsPercent": 0.0
+  },
+  {
+    "backend": "webgpu",
+    "viewport": "portrait",
+    "meanChannelDifference": 0.0,
+    "maxChannelDifference": 0,
+    "changedPixelsPercent": 0.0
+  },
+  {
+    "backend": "webgl",
+    "viewport": "landscape",
+    "meanChannelDifference": 0.0,
+    "maxChannelDifference": 0,
+    "changedPixelsPercent": 0.0
+  },
+  {
+    "backend": "webgl",
+    "viewport": "portrait",
+    "meanChannelDifference": 0.0,
+    "maxChannelDifference": 0,
+    "changedPixelsPercent": 0.0
+  }
+]

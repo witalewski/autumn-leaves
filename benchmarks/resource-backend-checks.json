@@ -1,0 +1,33 @@
+[
+  {
+    "path": "/tests/gpu.html",
+    "result": "PASS 500 initialized GPU matrices match CPU TRS, including nonuniform scale\nPASS GPU aerodynamic integration agrees with CPU after 120 steps (450 leaves, max error 7.22e-5)\nPASS GPU matrices change without CPU transform uploads\nPASS Reset restores the same GPU transforms exactly\nPASS Turning gesture wind agrees on CPU and GPU (450 leaves, error 9.27e-5)\nPASS GPU recycles an out-of-bounds leaf in place\nPASS 500 leaves remain finite at extreme controls for five simulated seconds\nPASS foreground: GPU depth integration matches CPU (49 leaves, error 6.99e-6)\nPASS foreground: GPU recycles offscreen inside its own depth band\nPASS foreground: portrait resize and extreme controls retain finite depth state\nPASS midground: GPU depth integration matches CPU (191 leaves, error 6.37e-6)\nPASS midground: GPU recycles offscreen inside its own depth band\nPASS midground: portrait resize and extreme controls retain finite depth state\nPASS background: GPU depth integration matches CPU (248 leaves, error 3.01e-5)\nPASS background: GPU recycles offscreen inside its own depth band\nPASS background: portrait resize and extreme controls retain finite depth state\nAll GPU checks passed."
+  },
+  {
+    "path": "/tests/post.html",
+    "result": "WebGPU\nPASS DPR 1: default RMS 0.78, maximum RMS 6.74 / 255; paused difference 0.00, animated difference 9.47, reduced-motion difference 0.00\nPASS DPR 1.75: default RMS 0.78, maximum RMS 6.55 / 255; paused difference 0.00, animated difference 9.41, reduced-motion difference 0.00\nPASS 60 FPS: exactly 24 grain changes per second; intervening frames identical\nPASS 120 FPS: exactly 24 grain changes per second; intervening frames identical\nPASS 144 FPS: exactly 24 grain changes per second; intervening frames identical"
+  },
+  {
+    "path": "/tests/post.html?webgl",
+    "result": "WebGL2\nPASS DPR 1: default RMS 0.78, maximum RMS 6.74 / 255; paused difference 0.00, animated difference 9.47, reduced-motion difference 0.00\nPASS DPR 1.75: default RMS 0.78, maximum RMS 6.55 / 255; paused difference 0.00, animated difference 9.41, reduced-motion difference 0.00\nPASS 60 FPS: exactly 24 grain changes per second; intervening frames identical\nPASS 120 FPS: exactly 24 grain changes per second; intervening frames identical\nPASS 144 FPS: exactly 24 grain changes per second; intervening frames identical"
+  },
+  {
+    "backend": "webgpu",
+    "pausedFrames": 0,
+    "resizeFrames": 2,
+    "resumedFrames": 18,
+    "errors": []
+  },
+  {
+    "backend": "webgl",
+    "pausedFrames": 0,
+    "resizeFrames": 2,
+    "resumedFrames": 18,
+    "errors": []
+  },
+  {
+    "backend": "none",
+    "fallback": "The sky is still here. Live rendering is unavailable in this browser.",
+    "errors": []
+  }
+]

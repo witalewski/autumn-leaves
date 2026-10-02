@@ -1,0 +1,23 @@
+[
+  {
+    "backend": "webgpu",
+    "synchronousAssets": true,
+    "pausedPostToggle": true,
+    "hiddenStopsFrames": true,
+    "pausedShowRemainsIdle": true,
+    "resume": true,
+    "errors": []
+  },
+  {
+    "backend": "webgl",
+    "synchronousAssets": true,
+    "pausedPostToggle": true,
+    "hiddenStopsFrames": true,
+    "pausedShowRemainsIdle": true,
+    "resume": true,
+    "errors": []
+  },
+  {
+    "automaticWebGPUFallback": "WebGL2"
+  }
+]

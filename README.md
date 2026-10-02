@@ -72,7 +72,7 @@ The five forms range from an open oval to a gently cupped blade, softly arched n
 
 The renderer prefers WebGPU and lets Three.js fall back to WebGL2 with the same node materials. Append `?backend=webgl` to exercise WebGL2 explicitly. In development, `?backend=none` exercises the static CSS sky and unsupported-renderer message. Initialization, rendering, and device-loss errors also reveal that fallback. Reload to retry after device loss.
 
-Effective DPR is capped at 1.75, with a separate render-scale control. The single animation loop stops while hidden and clamps elapsed time on resume. Reduced motion runs simulation time at 8% speed, slowing movement, rotation, gusts, and flutter together; the camera stays fixed. HMR cleans up resources, controls, listeners, and the frame loop.
+Effective DPR is capped at 1.75, with a separate render-scale control. The single animation loop stops while hidden or paused, redraws paused scenes on resize/control changes, and clamps elapsed time on resume. Reduced motion runs simulation time at 8% speed, slowing movement, rotation, gusts, and flutter together; the camera stays fixed. HMR cleans up resources, controls, listeners, and the frame loop.
 
 ## Phase 5 composition
 
@@ -100,7 +100,7 @@ Flare follows the projected directional sun, fades at the screen edge, and disap
 
 ## Phase 7 adaptive quality
 
-Both backends start at **High** and measure actual animation-frame intervals, independently of the clamped simulation delta. `quality/PerformanceMonitor.ts` keeps a bounded rolling window of roughly two seconds without frame-loop allocations. `quality/QualityController.ts` waits three seconds at startup/resume, then lowers quality after three sustained seconds above 130% of the target frame budget. Recovery needs twelve seconds below 105% of the budget. Each change has an eight-second cooldown and clears old samples. An isolated stall does not trigger a downgrade; intervals over one second reset monitoring as suspension gaps. Hidden-page transitions clear the history. Paused/reduced-motion rendering still measures actual rendering performance.
+Both backends start at **High** and measure actual animation-frame intervals, independently of the clamped simulation delta. `quality/PerformanceMonitor.ts` keeps a bounded rolling window of roughly two seconds without frame-loop allocations. `quality/QualityController.ts` waits three seconds at startup/resume, then lowers quality after three sustained seconds above 130% of the target frame budget. Recovery needs twelve seconds below 105% of the budget. Each change has an eight-second cooldown and clears old samples. An isolated stall does not trigger a downgrade; intervals over one second reset monitoring as suspension gaps. Hidden-page transitions clear the history. Reduced-motion rendering still measures actual rendering performance. Paused scenes render only on changes and do not feed idle intervals into adaptation.
 
 | Preset | Render scale | DPR cap | Development leaves (GPU / GL2) | Production leaves |
 | --- | --- | --- | --- | --- |
@@ -143,6 +143,12 @@ Shape/color pairings vary by seed and depth population. Every population retains
 Color grading uses more neutral warmth (temperature 0.012, highlight warmth 0.025, shadow coolness 0.018), slightly restrained saturation (0.94), and contrast 1.055. Sunlight is 3.0 with a softer warm tint. Bloom strength is 0.13 and flare 0.045, reducing conspicuous glow/ghosts. Grain retains the established 0.006 strength and 24 Hz cadence; its pause/reduced-motion and DPR behavior were rechecked on both backends. Sun projection reuses scratch vectors instead of allocating them each frame.
 
 Local verification covers the production scene, portrait WebGL2, pause/resume, the GPU regression harness, and post-processing harnesses on both backends. All GPU checks passed; the 120-step CPU/GPU matrix comparison stayed below 0.00008 maximum error, and all depth populations retained finite state under extreme controls and portrait resize. Unit tests cover camera bounds/cadence/reduced motion, seeded shape permutations, smooth independent foreground approaches, and delayed offscreen entries. Physical mobile/thermal performance and the realism of final scanned assets remain outside this local verification. The current foliage is still procedural artwork.
+
+## Resource usage optimization
+
+The post pipeline precompiles against its own HDR/MSAA scene target, avoiding an unused full-size renderer framebuffer. Film grain uses one R8 channel with identical noise and filtering. Paused scenes stop scheduling frames; resize, settings, reset, and resume invalidate the scene. WebGL2 uploads only the visible matrix prefixes and skips uploads when no simulation step has elapsed. An unused single-leaf mesh/shader graph was removed, and palette materials share the warm-light node.
+
+Chrome DevTools Protocol checks retained the same visual output (pixel-identical seeded first frames in desktop and portrait on both backends), resolution, MSAA, leaf counts, texture detail, post effects, and approximately 60 FPS cadence. Requested WebGPU texture allocation fell from 114.73 to 64.51 MiB at 1280×720. Pausing submits no GPU work. The production JS is 68 bytes smaller raw and 7 bytes smaller with gzip. See [RESOURCE_REPORT.md](./RESOURCE_REPORT.md) for CPU, startup, allocation methodology, and backend verification evidence.
 
 ## Verification
 

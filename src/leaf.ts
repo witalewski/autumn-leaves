@@ -1,6 +1,6 @@
 import {
   BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute,
-  LinearMipmapLinearFilter, Mesh, MeshStandardNodeMaterial, RGBAFormat,
+  LinearMipmapLinearFilter, MeshStandardNodeMaterial, RGBAFormat,
   SRGBColorSpace, Vector2, Vector3,
 } from 'three/webgpu';
 import { createSurfaceData } from './foliage/ProceduralSurfaces';
@@ -122,16 +122,11 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color, surfaces: Lea
   const sunStrength = uniform(3.2);
   const direction = uniform(sunDirection);
   const color = uniform(sunColor);
-  const thickness = texture(maps.surface).r;
   // normalWorld is face-oriented, so either side transmits when facing away from the sun.
   const back = dot(normalWorld.negate(), direction).max(0);
   const view = cameraPosition.sub(positionWorld).normalize();
   const forwardScatter = pow(dot(view.negate(), direction).max(0), 5).mul(0.65).add(0.35);
-  const thin = thickness.oneMinus().pow(1.7);
-  const transmissionNode = texture(maps.color).rgb.mul(uniform(material.color))
-    .mul(mix(color, uniform(new Color('#ffb83d')), 0.35))
-    .mul(back.pow(0.8)).mul(thin).mul(transmission).mul(sunStrength).mul(forwardScatter);
-  material.emissiveNode = transmissionNode;
+  const warm = mix(color, uniform(new Color('#ffb83d')), 0.35);
   // Tiers share the surfaces. Distant tiers skip normal-map sampling; the
   // background also skips the packed surface map and forward-scatter lobe.
   const tiers: DetailTier[] = ['high', 'medium', 'low'];
@@ -145,7 +140,6 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color, surfaces: Lea
       variant.normalMap = surface.normal;
       variant.roughnessMap = surface.surface;
       const pigment = texture(surface.color).rgb.mul(uniform(material.color)).mul(uniform(tint));
-      const warm = mix(color, uniform(new Color('#ffb83d')), 0.35);
       if (tier !== 'high') variant.normalMap = null;
       if (tier === 'low') {
         variant.roughnessMap = null;
@@ -159,12 +153,8 @@ export function createLeaf(sunDirection: Vector3, sunColor: Color, surfaces: Lea
     }),
   ])) as Record<DetailTier, { material: MeshStandardNodeMaterial; tint: Color }[]>;
   const geometryVariants = Object.fromEntries(tiers.map(tier => [tier, leafForms.map((_, index) => createGeometry(tier, index))])) as Record<DetailTier, BufferGeometry[]>;
-  const geometries = { high: geometryVariants.high[0], medium: geometryVariants.medium[0], low: geometryVariants.low[0] };
-  const palette = palettes.high;
-  const mesh = new Mesh(geometries.high, material);
-  mesh.rotation.set(-0.18, -0.28, -0.38);
   return {
-    mesh, material, palette, palettes, geometries, geometryVariants, transmission, sunStrength,
+    material, palette: palettes.high, palettes, geometryVariants, transmission, sunStrength,
     textureBytes: [...new Set(surfaces.flatMap(surface => Object.values(surface)))].reduce((sum, map) => {
       let width = map.image.width, height = map.image.height, bytes = 0;
       do { bytes += width * height * 4; if (width === 1 && height === 1) break;
