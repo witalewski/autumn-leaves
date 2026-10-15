@@ -97,10 +97,6 @@ async function start() {
   let sampleFrames = 0;
   let stats: { update: (fps: number, ms: number) => void; destroy: () => void } | undefined;
 
-  function invalidate() {
-    if (ready && !failed && !document.hidden && !request) request = requestAnimationFrame(frame);
-  }
-
   function resize() {
     const width = host.clientWidth, height = host.clientHeight;
     if (width <= 0 || height <= 0) return;
@@ -110,7 +106,6 @@ async function start() {
     cameraMotion.resize();
     camera.updateProjectionMatrix();
     foliage.setCameraBounds(camera);
-    invalidate();
   }
 
   function applyQuality() {
@@ -156,7 +151,6 @@ async function start() {
     post.apply();
     updateInteractionHint();
     foliage.configure();
-    invalidate();
   }
 
   function fail(error: unknown) {
@@ -176,8 +170,6 @@ async function start() {
   }
   function toggleMotion() {
     settings.running = !settings.running;
-    lastTime = sampleFrames = sampleTime = 0;
-    quality.reset();
     gestureInput.reset();
     applySettings();
   }
@@ -195,7 +187,6 @@ async function start() {
   }, events);
 
   function frame(now: number) {
-    request = 0;
     if (failed || document.hidden) return;
     const elapsed = lastTime ? (now - lastTime) / 1000 : 0;
     const dt = Math.min(elapsed, 0.05);
@@ -218,8 +209,8 @@ async function start() {
       sampleFrames = 0;
       sampleTime = 0;
     }
-    if (settings.running && elapsed > 0 && quality.record(elapsed * 1000)) applyQuality();
-    if (settings.running) invalidate();
+    if (elapsed > 0 && quality.record(elapsed * 1000)) applyQuality();
+    request = requestAnimationFrame(frame);
   }
 
   const observer = new ResizeObserver(resize);
@@ -227,13 +218,12 @@ async function start() {
   window.addEventListener('resize', resize, events);
   document.addEventListener('visibilitychange', () => {
     cancelAnimationFrame(request);
-    request = 0;
     gestureInput.reset();
     lastTime = 0;
     sampleFrames = 0;
     sampleTime = 0;
     quality.reset();
-    invalidate();
+    if (ready && !document.hidden && !failed) request = requestAnimationFrame(frame);
   }, events);
 
   dispose = () => {
@@ -253,19 +243,19 @@ async function start() {
   resize();
   foliage.reset();
   // Compile before dismissing the loading state, so shader failures retain the static sky.
-  await post.compile();
+  await renderer.compileAsync(scene, camera);
   if (failed) return;
   post.render(motion.matches);
   if (failed) return;
   if (import.meta.env.DEV) {
     const { createDebug } = await import('./debug');
-    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { gestureInput.reset(); foliage.reset(); sky.reset(settings.seed); cameraMotion.reset(); invalidate(); }, foliage, quality);
+    stats = createDebug(settings, renderer, capabilities.backend, applySettings, resize, () => { gestureInput.reset(); foliage.reset(); sky.reset(settings.seed); cameraMotion.reset(); }, foliage, quality);
     console.info('Renderer capabilities:', capabilities);
   }
   fallback.hidden = true;
   ready = true;
   performance.measure('autumn:scene-ready', { start: 0, end: performance.now() });
-  invalidate();
+  if (!document.hidden) request = requestAnimationFrame(frame);
 }
 
 start().catch((error: unknown) => { dispose(); showFallback(error); });

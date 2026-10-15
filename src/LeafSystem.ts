@@ -38,9 +38,7 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
   const matrix = new Matrix4();
   let camera: DepthCamera | undefined;
   let time = 0, accumulator = 0;
-  let syncedTime = -1, syncedCount = -1;
   function configure() {
-    syncedCount = -1;
     config.leafCount = Math.max(20, Math.min(capacity, Math.round(config.leafCount)));
     for (const batch of batches) {
       batch.mesh.count = 0;
@@ -61,21 +59,13 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
     initial.setPopulationBounds(populationBounds);
     configure();
   }
-  function syncCpu(force = false) {
-    if (!force && syncedTime === initial.time && syncedCount === config.leafCount) return;
-    syncedTime = initial.time;
-    syncedCount = config.leafCount;
+  function syncCpu() {
     for (let i = 0; i < config.leafCount; i++) {
       const state = initial.leaves[i], slot = slots[i];
       matrix.compose(state.position, state.rotation, scales[i]);
       meshes[slot.batchIndex].setMatrixAt(slot.index, matrix);
     }
-    for (const mesh of meshes) {
-      if (!mesh.visible || !mesh.count) continue;
-      mesh.instanceMatrix.clearUpdateRanges();
-      mesh.instanceMatrix.addUpdateRange(0, mesh.count * 16);
-      mesh.instanceMatrix.needsUpdate = true;
-    }
+    for (const mesh of meshes) mesh.instanceMatrix.needsUpdate = true;
   }
   function reset() {
     time = accumulator = 0;
@@ -107,7 +97,7 @@ export function createLeafSystem(leaf: ReturnType<typeof createLeaf>, config: Mo
     if (gpu) {
       for (const batch of batches) { batch.compute!.upload(); batch.compute!.setTime(0, 0); batch.compute!.setGestureWind(0, 0); }
       renderer.compute(kernels);
-    } else syncCpu(true);
+    } else syncCpu();
   }
   return {
     meshes, capacity, populations, populationBounds, controls,
